@@ -27,12 +27,19 @@ class Rating:
 
 class VLMRater:
     def __init__(self, model_id: str, device: str = "cuda", dtype=torch.float16):
-        from transformers import AutoModelForVision2Seq, AutoProcessor
+        import transformers
+        from transformers import AutoProcessor
+
+        # AutoModelForImageTextToText is the current class; AutoModelForVision2Seq
+        # is legacy and does not map every VLM we target.
+        auto_model = getattr(
+            transformers, "AutoModelForImageTextToText", None
+        ) or transformers.AutoModelForVision2Seq
 
         self.model_id = model_id
         self.device = device
         self.processor = AutoProcessor.from_pretrained(model_id)
-        self.model = AutoModelForVision2Seq.from_pretrained(
+        self.model = auto_model.from_pretrained(
             model_id, dtype=dtype, device_map=device
         ).eval()
 

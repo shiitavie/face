@@ -1,0 +1,12 @@
+# NOTE: torch is deliberately absent. Colab ships a CUDA-matched build and
+# reinstalling it is the classic way to break the runtime. Install torch only
+# on a fresh VM, matched to that machine's CUDA version.
+
+transformers>=4.51,<5
+accelerate>=1.0
+qwen-vl-utils>=0.0.8
+pillow>=10.0
+pandas>=2.0
+openpyxl>=3.1
+pyarrow>=15.0
+pytest>=8.0

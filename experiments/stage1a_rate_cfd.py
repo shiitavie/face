@@ -34,7 +34,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--conditions", nargs="+", default=["zero_shot"])
+    # ICL is not wired up yet: rate() is called without demonstrations, so
+    # accepting "icl" here would label zero-shot results as ICL. The
+    # demonstration set size and composition are still open (spec 14).
+    parser.add_argument(
+        "--conditions", nargs="+", choices=["zero_shot"], default=["zero_shot"]
+    )
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
 
