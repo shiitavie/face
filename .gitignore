@@ -1,0 +1,29 @@
+# Datasets — CFD's license prohibits redistribution; FairFace is large.
+# Never commit image data.
+dataset/
+data/raw/
+data/images/
+fairface/
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+
+# Derived artifacts
+artifacts/
+*.npy
+*.npz
+*.parquet
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
