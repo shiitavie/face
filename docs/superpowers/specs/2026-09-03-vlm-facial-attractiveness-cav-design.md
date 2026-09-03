@@ -127,12 +127,14 @@ it is the fallback if the mechanistic half disappoints.
 
 Neutral-expression images only, holding expression fixed as a confound.
 
-| Subset | N | Notes |
-|---|---|---|
-| CFD main | 597 | Self-identified Asian, Black, Latino, White × female/male |
-| CFD-MR | 88 | Multiracial |
-| CFD-INDIA | 142 | |
-| **Total** | **~827** | |
+| Subset | Images | Norming rows | Notes |
+|---|---|---|---|
+| CFD main | 597 | 597 | Self-identified Asian, Black, Latino, White × female/male |
+| CFD-MR | 88 | 88 | Multiracial |
+| CFD-INDIA | 146 | 142 | |
+| **Total** | **831** | **827** | 826 join; 5 images flagged (§4.4) |
+
+Verified against the distribution on disk, 2026-09-03.
 
 Free for research use; requires registration. Ships with:
 
@@ -180,6 +182,39 @@ against `D` in the thousands is trustworthy even regularized.
 subgroup members when computing subgroup sensitivity. Concept directions are a property of
 the model, not of the subgroup; only the sensitivity needs conditioning. This matches
 VCR's own procedure and avoids the thin-cell problem entirely.
+
+Observed matched cell sizes (race × gender): A 57/52, B 104/93, I 52/89, L 56/52,
+M 62/26, W 90/93. The multiracial male cell (n=26) is the binding constraint.
+
+### 4.4 Data-quality exceptions
+
+Five images have no norming row and are retained with `join_status = "no_norming_row"`
+rather than dropped, so the discrepancies stay visible downstream:
+
+- Four CFD-I subjects have two neutral images (`-1`, `-2`); only the `-1` row is normed.
+  The `-2` replicates carry no norming data.
+- `CFD-IM-719-221-N.jpg` on disk versus `IM719-220` in the norming sheet — an off-by-one
+  in the CFD distribution itself, not in our parsing.
+
+Primary analyses use matched rows only (n=826). The replicates are useful as a
+within-subject test-retest check on model rating stability.
+
+### 4.5 Attractiveness variables — R013 versus R013B
+
+**CFD does not use one attractiveness question across subsets.**
+
+| Subset | Variable | Question |
+|---|---|---|
+| CFD main, CFD-MR | **R013** | rate *"relative to other people of the same race and gender"* |
+| CFD-I | **R013B** | absolute first impression, 1–7, 4 = Neutral |
+
+R013 has the between-group effect removed **by construction**. It must never be used as a
+between-group human baseline, and must never share a column with R013B. The manifest keeps
+them in separate columns (`attractive_rel`, `attractive_abs_us`, `attractive_abs_india`)
+and records which variable each row carries.
+
+CFD-I is additionally normed **twice on R013B** — once by US raters, once by Indian raters,
+on the same faces. See §7.3.
 
 ---
 
@@ -375,19 +410,40 @@ distribution of rank correlations.
 OLS on the expected rating with robust standard errors; race × gender × condition. One
 image per subject in CFD, so no random effects are required.
 
-### 7.3 Amplification test
+### 7.3 Human comparators
 
-Compute the standardized disparity coefficient on model ratings and on CFD human norms
-over the same images; report the ratio with a bootstrap confidence interval.
+**The amplification test is not runnable on CFD's norms, and the design does not claim
+it.** Amplification requires a human baseline measured on an absolute scale across
+demographic groups. R013 is normed within race and gender, so the between-group effect is
+absent by construction; R013B is absolute but exists only for CFD-I, a single ethnic
+group. Comparing model disparity against R013 would manufacture apparent amplification
+out of an artefact of the rating instrument. This limitation is stated explicitly in the
+manuscript rather than worked around.
 
-This distinguishes *amplification* from *reproduction*. Raw disparity alone is a weak
-claim — human raters show demographic disparities in every dataset since the 1990s, so
-"the model rates group X lower" merely restates that training data reflects documented
-human preference. The defensible claim is that the model's effect size exceeds the human
-baseline on the same images.
+Two comparators remain, and both are informative:
 
-**Note on framing.** Human ratings are used here as a *comparator*, never as ground truth.
-Attractiveness has no truth value; deviation from human raters is disagreement with
+**(a) Construct validity, within group.** Spearman correlation between model expected
+rating and R013, computed *within* each race × gender cell. R013's within-cell normalization
+is no obstacle here: the question is whether the model orders faces the way humans do, and
+that is exactly what R013 measures. Evidence the model performs the task rather than
+emitting noise or clamping to the scale midpoint.
+
+**(b) Cross-cultural comparator, CFD-I.** The 141 CFD-I faces normed by both US and Indian
+rater pools on the identical R013B question support a question no prior work in this
+lineage could ask: **does the model's judgment align more closely with US or with Indian
+human raters?** Report model-vs-US and model-vs-India correlations, and the paired mean
+difference.
+
+**This comparator also supplies a reference ceiling.** The two human pools agree with each
+other at only Pearson r = 0.585 (Spearman 0.540), with Indian raters scoring the same faces
+0.185 points lower on average. Human-human cross-cultural agreement therefore bounds what
+model-human agreement can reasonably be asked to reach — a model correlating with US raters
+near r = 0.59 is at the human ceiling, and criticizing it for falling below perfect
+agreement would be unfair. Any claim about model-human alignment must be stated against
+this ceiling, not against r = 1.
+
+**Note on framing.** Human ratings are used throughout as a *comparator*, never as ground
+truth. Attractiveness has no truth value; deviation from human raters is disagreement with
 another biased rater, not error.
 
 ### 7.4 Normative discipline

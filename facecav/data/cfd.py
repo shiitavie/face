@@ -63,12 +63,16 @@ from pathlib import Path
 
 import pandas as pd
 
-#: Image subdirectory -> norming sheet. The India extension's directory is
-#: ``CFD-INDIA`` but its sheet is ``CFD-I``.
+#: Image subdirectory -> norming sheets, primary first. The India extension is
+#: normed twice on the same question, once by US raters and once by Indian
+#: raters, giving a cross-cultural human comparator on identical faces.
 NORMING_SHEETS = {
-    "CFD": "CFD U.S. Norming Data",
-    "CFD-MR": "CFD-MR U.S. Norming Data",
-    "CFD-INDIA": "CFD-I U.S. Norming Data",
+    "CFD": [("CFD U.S. Norming Data", "us")],
+    "CFD-MR": [("CFD-MR U.S. Norming Data", "us")],
+    "CFD-INDIA": [
+        ("CFD-I U.S. Norming Data", "us"),
+        ("CFD-I INDIA Norming Data", "india"),
+    ],
 }
 
 NORMING_WORKBOOK = "CFD 3.0 Norming Data and Codebook.xlsx"
@@ -76,14 +80,36 @@ NORMING_WORKBOOK = "CFD 3.0 Norming Data and Codebook.xlsx"
 #: Header rows in every norming sheet (0-indexed).
 _ROW_VARID, _ROW_LABEL, _ROW_DATA = 6, 7, 9
 
-#: R013 asks for a rating *relative to others of the same race and gender*;
-#: R013B asks for an absolute first impression. They are different questions
-#: and must never share a column -- R013 has the between-group effect removed
-#: by construction, so using it as a between-group human baseline is invalid.
-_ATTRACTIVENESS_COLUMN = {"R013": "attractive_rel", "R013B": "attractive_abs"}
+
+def attractiveness_column(var_id: str, rater_pool: str) -> str:
+    """Column name for a sheet's attractiveness variable.
+
+    R013 asks for a rating *relative to others of the same race and gender*;
+    R013B asks for an absolute first impression. They are different questions
+    and must never share a column: R013 has the between-group effect removed by
+    construction, so using it as a between-group human baseline is invalid.
+    The rater pool is part of the name for the same reason -- US and Indian
+    raters are not interchangeable.
+    """
+    if var_id == "R013":
+        return "attractive_rel"
+    if var_id == "R013B":
+        return f"attractive_abs_{rater_pool}"
+    raise ValueError(f"unrecognised attractiveness variable: {var_id!r}")
 
 
-def _read_norming_sheet(workbook: Path, sheet: str) -> tuple[pd.DataFrame, str]:
+ATTRACTIVENESS_COLUMNS = ("attractive_rel", "attractive_abs_us", "attractive_abs_india")
+
+_NON_NUMERIC = {
+    "image_path", "subset", "model_id", "race_code", "gender_code",
+    "expression", "attractive_variable", "join_status",
+    "EthnicitySelf", "GenderSelf",
+}
+
+
+def _read_norming_sheet(
+    workbook: Path, sheet: str, rater_pool: str
+) -> tuple[pd.DataFrame, str]:
     """Return (tidy norming frame, the R013 variant this sheet uses)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -99,17 +125,16 @@ def _read_norming_sheet(workbook: Path, sheet: str) -> tuple[pd.DataFrame, str]:
     out.insert(0, "model_id", body.iloc[:, 0].astype(str).values)
     out = out[out.model_id != "nan"].reset_index(drop=True)
 
-    attractiveness_var = next(v for v in var_ids if v.startswith("R013"))
-    out = out.rename(columns={"Attractive": _ATTRACTIVENESS_COLUMN[attractiveness_var]})
-    return out, attractiveness_var
+    var_id = next(v for v in var_ids if v.startswith("R013"))
+    return out.rename(columns={"Attractive": attractiveness_column(var_id, rater_pool)}), var_id
 
 
 def build_manifest(root: Path, expression: str = "N") -> pd.DataFrame:
     """Join CFD images to their norming rows.
 
-    One row per image file. Images with no norming row are retained and
-    flagged in ``join_status`` rather than dropped, so the CFD distribution's
-    own inconsistencies stay visible downstream.
+    One row per image file. Images with no norming row are retained and flagged
+    in ``join_status`` rather than dropped, so the CFD distribution\'s own
+    inconsistencies stay visible downstream.
     """
     root = Path(root)
     workbook = root / NORMING_WORKBOOK
@@ -132,32 +157,35 @@ def build_manifest(root: Path, expression: str = "N") -> pd.DataFrame:
     images = pd.DataFrame(rows)
 
     merged = []
-    for subset, sheet in NORMING_SHEETS.items():
-        norming, attractiveness_var = _read_norming_sheet(workbook, sheet)
+    for subset, sheets in NORMING_SHEETS.items():
+        (primary_sheet, primary_pool), *secondary = sheets
+
+        norming, var_id = _read_norming_sheet(workbook, primary_sheet, primary_pool)
         part = images[images.subset == subset].merge(
             norming, on="model_id", how="left", indicator=True
         )
-        part["attractive_variable"] = part["_merge"].map(
-            {"both": attractiveness_var}
-        )
+        part["attractive_variable"] = part["_merge"].map({"both": var_id})
         part["join_status"] = part["_merge"].map(
             {"both": "matched", "left_only": "no_norming_row"}
         )
-        merged.append(part.drop(columns="_merge"))
+        part = part.drop(columns="_merge")
+
+        # Secondary sheets contribute only their attractiveness rating; the
+        # remaining columns duplicate the primary sheet.
+        for sheet, rater_pool in secondary:
+            extra, extra_var = _read_norming_sheet(workbook, sheet, rater_pool)
+            column = attractiveness_column(extra_var, rater_pool)
+            part = part.merge(extra[["model_id", column]], on="model_id", how="left")
+
+        merged.append(part)
 
     manifest = pd.concat(merged, ignore_index=True)
 
-    # Ensure both attractiveness columns exist even for subsets lacking one.
-    for column in _ATTRACTIVENESS_COLUMN.values():
+    for column in ATTRACTIVENESS_COLUMNS:
         if column not in manifest.columns:
             manifest[column] = pd.NA
 
-    numeric = [c for c in manifest.columns if c not in {
-        "image_path", "subset", "model_id", "race_code", "gender_code",
-        "expression", "attractive_variable", "join_status",
-        "EthnicitySelf", "GenderSelf",
-    }]
-    for column in numeric:
+    for column in (c for c in manifest.columns if c not in _NON_NUMERIC):
         manifest[column] = pd.to_numeric(manifest[column], errors="coerce")
 
     return manifest
