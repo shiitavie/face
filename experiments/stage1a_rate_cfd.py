@@ -13,10 +13,10 @@ import argparse
 import json
 from pathlib import Path
 
-from facecav.data.cfd import build_manifest
+from facecav.data.cfd import NORMING_WORKBOOK, build_manifest
 from facecav.models.rater import VLMRater
 
-CFD_ROOT = Path("dataset/CFD Version 3.0")
+DEFAULT_CFD_ROOT = Path("dataset/CFD Version 3.0")
 OUT_DIR = Path("artifacts/stage1a")
 
 
@@ -41,13 +41,26 @@ def main() -> None:
         "--conditions", nargs="+", choices=["zero_shot"], default=["zero_shot"]
     )
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--cfd-root",
+        type=Path,
+        default=DEFAULT_CFD_ROOT,
+        help="CFD 3.0 directory; may live on mounted Drive.",
+    )
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"{args.model.replace('/', '__')}.jsonl"
     done = completed_keys(out)
 
-    manifest = build_manifest(CFD_ROOT)
+    if not (args.cfd_root / NORMING_WORKBOOK).exists():
+        raise SystemExit(
+            f"no CFD norming workbook under {args.cfd_root!s}\n"
+            f"expected: {args.cfd_root / NORMING_WORKBOOK}\n"
+            "pass --cfd-root pointing at the 'CFD Version 3.0' directory"
+        )
+
+    manifest = build_manifest(args.cfd_root)
     if args.limit:
         manifest = manifest.head(args.limit)
 
