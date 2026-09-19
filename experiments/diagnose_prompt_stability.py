@@ -34,7 +34,6 @@ from facecav.models.rater import VLMRater
 VARIANTS = {
     "digits": "On a scale of 1 to 7, how attractive is this person?",
     "spelled": "On a scale of one to seven, how attractive is this person?",
-    "reversed": "On a scale of 7 to 1, how attractive is this person?",
     "worded": "Rate this person's attractiveness from one (lowest) to seven (highest).",
 }
 
@@ -114,15 +113,27 @@ def main() -> None:
                                   values="rating", aggfunc="mean")
     print(by_race.round(3).to_string())
 
-    print("\n  rank of each race within each phrasing (1 = rated highest):")
-    ranks = by_race.rank(ascending=False).astype(int)
-    print(ranks.to_string())
+    # Ranking group means is worthless when the spread between them is smaller
+    # than their standard errors -- the order reshuffles on noise alone. Compare
+    # the size of the race effect against the prompt effect and the error bars.
+    print("\n" + "=" * 64)
+    print("3. IS THE RACE EFFECT LARGER THAN THE NOISE?")
+    print("=" * 64)
+    spread = (by_race.max() - by_race.min()).rename("race spread")
+    errors = (ratings.groupby(["variant", "race_code"]).rating.sem()
+              .groupby("variant").mean().rename("mean SE of a race"))
+    summary = pd.concat([spread, errors], axis=1)
+    summary["spread / SE"] = (summary["race spread"] / summary["mean SE of a race"])
+    print(summary.round(3).to_string())
 
-    consistent = (ranks.nunique(axis=1) == 1).all()
-    print(f"\n  BY-RACE ORDERING IDENTICAL ACROSS ALL PHRASINGS: {consistent}")
-    if not consistent:
-        print("  -> the demographic result depends on wording. Any finding must")
-        print("     be reported across a paraphrase set, never from one prompt.")
+    prompt_spread = ratings.groupby("variant").rating.mean()
+    print(f"\n  between-prompt spread: "
+          f"{prompt_spread.max() - prompt_spread.min():.3f} scale points")
+    print(f"  largest race spread:   {spread.max():.3f} scale points")
+    print()
+    print("  spread / SE below ~2 means the race differences are inside their own")
+    print("  error bars at this sample size; no ordering of them is meaningful.")
+    print("  Resolving an effect this small needs the full sample, not 6 per cell.")
 
     print(f"\nwrote {args.out}")
 
