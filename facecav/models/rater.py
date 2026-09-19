@@ -165,7 +165,8 @@ class VLMRater:
         n_samples: int = 20,
         temperature: float = 1.0,
         max_new_tokens: int = 12,
-    ) -> list[float]:
+        return_text: bool = False,
+    ) -> list:
         """Sample ``n_samples`` ratings by generation, parsing each as text.
 
         The logit path (``expected_rating``) is exact but needs open weights.
@@ -197,11 +198,13 @@ class VLMRater:
         )
         tokenizer = getattr(self.processor, "tokenizer", self.processor)
         prompt_length = inputs["input_ids"].shape[1]
-        return [
-            parse_rating(
-                tokenizer.decode(sequence[prompt_length:], skip_special_tokens=True),
-                scale_max=SCALE_MAX,
-                scale_min=SCALE_MIN,
-            )
+        texts = [
+            tokenizer.decode(sequence[prompt_length:], skip_special_tokens=True)
             for sequence in generated
+        ]
+        if return_text:
+            return texts
+        return [
+            parse_rating(text, scale_max=SCALE_MAX, scale_min=SCALE_MIN)
+            for text in texts
         ]

@@ -136,3 +136,40 @@ def parse_rating(text: str, scale_max: int = 7, scale_min: int = 1) -> float:
         if scale_min <= value <= scale_max:
             return value
     return math.nan
+
+
+def classify_response(text: str, scale_max: int = 7, scale_min: int = 1) -> dict:
+    """Separate a refusal from a hedged answer.
+
+    ``parse_rating`` is deliberately conservative and treats any refusal marker
+    as disqualifying. That conflates two different behaviours: declining
+    outright, and giving a number with a caveat ("attractiveness is subjective,
+    but I'd say 5"). Counting the latter as a refusal both inflates the refusal
+    rate and discards a usable rating.
+
+    Returns ``kind`` in {answer, hedged, refusal, unparseable} with the rating
+    where one was given.
+    """
+    if not text or not text.strip():
+        return {"kind": "unparseable", "rating": math.nan, "text": text}
+
+    hedged = any(marker in text.lower() for marker in _REFUSAL_MARKERS)
+
+    rating = math.nan
+    for match in _NUMBER.finditer(text):
+        value = float(match.group())
+        if scale_min <= value <= scale_max:
+            rating = value
+            break
+
+    if math.isnan(rating):
+        return {
+            "kind": "refusal" if hedged else "unparseable",
+            "rating": math.nan,
+            "text": text,
+        }
+    return {
+        "kind": "hedged" if hedged else "answer",
+        "rating": rating,
+        "text": text,
+    }

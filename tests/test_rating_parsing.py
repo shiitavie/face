@@ -52,3 +52,34 @@ def test_empty_output_returns_nan():
 
 def test_ignores_a_year_or_other_large_number():
     assert math.isnan(parse_rating("In 2024 studies found...", scale_max=7))
+
+
+# --- refusal must be distinguished from hedging ---
+
+from facecav.models.scoring import classify_response
+
+
+def test_a_plain_number_is_an_answer():
+    result = classify_response("5", scale_max=7)
+    assert result["kind"] == "answer"
+    assert result["rating"] == 5.0
+
+
+def test_a_hedged_number_still_yields_a_rating():
+    # "Attractiveness is subjective, but I'd say 5" is a rating with a caveat.
+    # Counting it as a refusal both inflates the refusal rate and discards data.
+    result = classify_response("Attractiveness is subjective, but I'd say 5.", scale_max=7)
+    assert result["kind"] == "hedged"
+    assert result["rating"] == 5.0
+
+
+def test_a_refusal_with_no_number_yields_no_rating():
+    result = classify_response("I can't rate someone's attractiveness.", scale_max=7)
+    assert result["kind"] == "refusal"
+    assert math.isnan(result["rating"])
+
+
+def test_unparseable_output_is_distinguished_from_refusal():
+    result = classify_response("It depends on the viewer.", scale_max=7)
+    assert result["kind"] == "unparseable"
+    assert math.isnan(result["rating"])
