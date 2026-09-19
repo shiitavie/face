@@ -33,6 +33,13 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument(
+        "--order",
+        choices=["forward-first", "generate-first"],
+        default="forward-first",
+        help="Which call runs first. Qwen2.5-VL caches rope_deltas on the "
+        "module during forward, so order may matter.",
+    )
     args = parser.parse_args()
 
     if not (args.cfd_root / NORMING_WORKBOOK).exists():
@@ -71,6 +78,10 @@ def main() -> None:
     image = Image.open(row.image_path).convert("RGB")
     inputs = rater.processor(text=[rendered], images=[image], return_tensors="pt").to(args.device)
 
+    if args.order == "generate-first":
+        with torch.no_grad():
+            rater.model.generate(**inputs, max_new_tokens=1, do_sample=False)
+
     with torch.no_grad():
         logits = rater.model(**inputs).logits[0, -1, :].float()
     probabilities = torch.softmax(logits, dim=-1)
@@ -88,14 +99,54 @@ def main() -> None:
     print(f"\nmass on the seven scale tokens: {on_scale:.4f}")
 
     print("\n" + "=" * 66)
-    print("4. WHAT THE MODEL ACTUALLY SAYS (greedy, 16 tokens)")
+    print("4. FORWARD LOGITS vs GENERATE STEP-0 LOGITS")
+    print("=" * 66)
+    print("Greedy decoding is argmax, so these two distributions must agree.")
+    print("If they do not, logits[0, -1, :] is not the distribution the model")
+    print("generates from, and every expected rating built on it is wrong.\n")
+
+    def summarise(label, values):
+        probabilities = torch.softmax(values.float(), dim=-1)
+        top = torch.topk(probabilities, 5)
+        rendered_top = "  ".join(
+            f"{tokenizer.decode([i])!r}={p:.4f}"
+            for p, i in zip(top.values.tolist(), top.indices.tolist())
+        )
+        print(f"  {label:<22} argmax={tokenizer.decode([int(values.argmax())])!r}")
+        print(f"  {'':<22} {rendered_top}")
+        return int(values.argmax())
+
+    with torch.no_grad():
+        step0 = rater.model.generate(
+            **inputs,
+            max_new_tokens=1,
+            do_sample=False,
+            output_scores=True,
+            return_dict_in_generate=True,
+        )
+    generate_argmax = summarise("generate step-0", step0.scores[0][0])
+
+    with torch.no_grad():
+        repeat = rater.model(**inputs).logits[0, -1, :]
+    forward_argmax = summarise("forward (after gen)", repeat)
+
+    print(f"\n  first forward argmax (section 3): "
+          f"{tokenizer.decode([int(logits.argmax())])!r}")
+
+    agree = generate_argmax == forward_argmax == int(logits.argmax())
+    print(f"\n  AGREE: {agree}")
+    if not agree:
+        print("  -> forward and generate disagree. Run again with --order")
+        print("     generate-first to test whether call order changes the result")
+        print("     (Qwen2.5-VL caches rope_deltas on the module during forward).")
+
+    print("\n" + "=" * 66)
+    print("5. FULL GREEDY CONTINUATION (16 tokens)")
     print("=" * 66)
     with torch.no_grad():
         generated = rater.model.generate(**inputs, max_new_tokens=16, do_sample=False)
     continuation = generated[0][inputs["input_ids"].shape[1]:]
     print(f"  {ASSISTANT_PREFIX}{tokenizer.decode(continuation, skip_special_tokens=True)!r}")
-    print("\n  If this reads as a different scale (e.g. '10'), the spike at P(1)")
-    print("  is P('1' as the first digit of a two-digit number), not P(rating=1).")
 
 
 if __name__ == "__main__":
