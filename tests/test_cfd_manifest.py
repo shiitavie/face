@@ -33,14 +33,23 @@ def test_non_neutral_expression_is_reported_not_dropped():
 
 # --- manifest construction (uses the real CFD tree on disk) ---
 
+import os
 from pathlib import Path
-from facecav.data.cfd import build_manifest
 
-CFD_ROOT = Path("dataset/CFD Version 3.0")
+from facecav.data.cfd import NORMING_WORKBOOK, build_manifest
+
+#: CFD is licensed and not redistributable, so it will be absent for most
+#: people cloning this repo. Point CFD_ROOT at your own copy.
+CFD_ROOT = Path(os.environ.get("CFD_ROOT", "dataset/CFD Version 3.0"))
 
 
 @pytest.fixture(scope="module")
 def manifest():
+    if not (CFD_ROOT / NORMING_WORKBOOK).exists():
+        pytest.skip(
+            f"CFD not found at {CFD_ROOT}. Obtain it from chicagofaces.org, then "
+            f"set CFD_ROOT=/path/to/'CFD Version 3.0'"
+        )
     return build_manifest(CFD_ROOT)
 
 

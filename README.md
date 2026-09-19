@@ -41,7 +41,9 @@ registration and its own license agreement; obtain it directly from the authors.
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -q
+
+# Manifest tests need CFD; without it they skip rather than fail.
+CFD_ROOT="/path/to/CFD Version 3.0" pytest tests/ -q
 
 python experiments/stage1a_rate_cfd.py \
   --model Qwen/Qwen2.5-VL-7B-Instruct \
