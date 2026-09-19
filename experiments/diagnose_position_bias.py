@@ -49,6 +49,9 @@ def main() -> None:
     parser.add_argument("--model", required=True)
     parser.add_argument("--cfd-root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--max-pixels", type=int, default=None,
+                        help="Vision-token cap per image; must be held "
+                             "constant across models and conditions.")
     parser.add_argument("--n-pairs", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -61,7 +64,7 @@ def main() -> None:
     left = matched.sample(args.n_pairs, random_state=args.seed)
     right = matched.sample(args.n_pairs, random_state=args.seed + 1)
 
-    rater = VLMRater(args.model, device=args.device)
+    rater = VLMRater(args.model, device=args.device, max_pixels=args.max_pixels)
     tokenizer = getattr(rater.processor, "tokenizer", rater.processor)
     option_ids = torch.tensor(resolve_option_tokens(tokenizer), device=args.device)
     print(f"option tokens: {[tokenizer.decode([i]) for i in option_ids.tolist()]}\n")

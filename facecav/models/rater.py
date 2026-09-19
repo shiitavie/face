@@ -26,7 +26,20 @@ class Rating:
 
 
 class VLMRater:
-    def __init__(self, model_id: str, device: str = "cuda", dtype=torch.float16):
+    #: Cap on vision tokens per image. Qwen2.5-VL defaults to 12.8M pixels, far
+    #: more than a face judgment needs, and cost scales with it. This is a
+    #: MEASUREMENT choice as well as a performance one -- resolution changes
+    #: what the model can see -- so it is explicit, recorded, and must be held
+    #: constant across every model and condition in a study.
+    DEFAULT_MAX_PIXELS = 1280 * 28 * 28
+
+    def __init__(
+        self,
+        model_id: str,
+        device: str = "cuda",
+        dtype=torch.float16,
+        max_pixels: int | None = None,
+    ):
         import transformers
         from transformers import AutoProcessor
 
@@ -38,7 +51,10 @@ class VLMRater:
 
         self.model_id = model_id
         self.device = device
-        self.processor = AutoProcessor.from_pretrained(model_id)
+        self.max_pixels = self.DEFAULT_MAX_PIXELS if max_pixels is None else max_pixels
+        self.processor = AutoProcessor.from_pretrained(
+            model_id, max_pixels=self.max_pixels
+        )
         self.model = auto_model.from_pretrained(
             model_id, dtype=dtype, device_map=device
         ).eval()

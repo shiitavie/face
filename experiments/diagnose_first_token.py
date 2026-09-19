@@ -31,6 +31,9 @@ def main() -> None:
     parser.add_argument("--model", required=True)
     parser.add_argument("--cfd-root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--max-pixels", type=int, default=None,
+                        help="Vision-token cap per image; must be held "
+                             "constant across models and conditions.")
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument(
@@ -46,7 +49,7 @@ def main() -> None:
         raise SystemExit(f"no CFD norming workbook under {args.cfd_root!s}")
 
     row = build_manifest(args.cfd_root).iloc[args.index]
-    rater = VLMRater(args.model, device=args.device)
+    rater = VLMRater(args.model, device=args.device, max_pixels=args.max_pixels)
     tokenizer = getattr(rater.processor, "tokenizer", rater.processor)
 
     print(f"model : {args.model}")

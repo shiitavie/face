@@ -43,6 +43,9 @@ def main() -> None:
     parser.add_argument("--model", required=True)
     parser.add_argument("--cfd-root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--max-pixels", type=int, default=None,
+                        help="Vision-token cap per image; must be held "
+                             "constant across models and conditions.")
     parser.add_argument("--per-cell", type=int, default=6,
                         help="Images sampled per race x gender cell.")
     parser.add_argument("--out", type=Path, default=Path("artifacts/prompt_stability.csv"))
@@ -59,7 +62,7 @@ def main() -> None:
         .reset_index(drop=True)
     )
 
-    rater = VLMRater(args.model, device=args.device)
+    rater = VLMRater(args.model, device=args.device, max_pixels=args.max_pixels)
     ids = torch.tensor(rater.rating_token_ids, device=args.device)
     scale = torch.arange(1, 8, device=args.device, dtype=torch.float32)
 

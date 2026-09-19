@@ -34,6 +34,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--max-pixels", type=int, default=None,
+                        help="Vision-token cap per image; must be held "
+                             "constant across models and conditions.")
     # ICL is not wired up yet: rate() is called without demonstrations, so
     # accepting "icl" here would label zero-shot results as ICL. The
     # demonstration set size and composition are still open (spec 14).
@@ -64,7 +67,7 @@ def main() -> None:
     if args.limit:
         manifest = manifest.head(args.limit)
 
-    rater = VLMRater(args.model, device=args.device)
+    rater = VLMRater(args.model, device=args.device, max_pixels=args.max_pixels)
     print(f"{args.model}: rating tokens {rater.rating_token_ids}")
 
     with out.open("a") as handle:
