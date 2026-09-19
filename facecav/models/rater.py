@@ -166,6 +166,7 @@ class VLMRater:
         temperature: float = 1.0,
         max_new_tokens: int = 12,
         return_text: bool = False,
+        batch_size: int = 8,
     ) -> list:
         """Sample ``n_samples`` ratings by generation, parsing each as text.
 
@@ -189,19 +190,40 @@ class VLMRater:
             text=[text], images=[image], return_tensors="pt"
         ).to(self.device)
 
-        generated = self.model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=temperature,
-            num_return_sequences=n_samples,
-        )
         tokenizer = getattr(self.processor, "tokenizer", self.processor)
         prompt_length = inputs["input_ids"].shape[1]
-        texts = [
-            tokenizer.decode(sequence[prompt_length:], skip_special_tokens=True)
-            for sequence in generated
-        ]
+
+        # num_return_sequences expands pixel_values too, so the vision tower
+        # re-encodes the same image once per sample -- 32 samples of a
+        # 1280-token image is ~41k vision tokens in a single pass, which OOMs a
+        # 24GB card. The samples share one prompt and one image, so that work is
+        # pure waste. Chunking caps peak memory; on OOM the chunk halves and
+        # retries rather than losing the run.
+        texts: list[str] = []
+        remaining = n_samples
+        chunk = min(batch_size, n_samples)
+        while remaining > 0:
+            try:
+                generated = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=temperature,
+                    num_return_sequences=min(chunk, remaining),
+                )
+            except torch.cuda.OutOfMemoryError:
+                if chunk == 1:
+                    raise
+                chunk = max(1, chunk // 2)
+                torch.cuda.empty_cache()
+                continue
+
+            texts.extend(
+                tokenizer.decode(sequence[prompt_length:], skip_special_tokens=True)
+                for sequence in generated
+            )
+            remaining -= generated.shape[0]
+            del generated
         if return_text:
             return texts
         return [

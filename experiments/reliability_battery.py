@@ -60,6 +60,10 @@ def main() -> None:
                         help="Sampling temperature. 1.0 gives within-image sd "
                              "~1.5 on a 7-point scale, which attenuates every "
                              "correlation; lower trades spread for precision.")
+    parser.add_argument("--sample-batch-size", type=int, default=8,
+                        help="Samples generated per forward pass. Each one "
+                             "re-encodes the image through the vision tower, "
+                             "so this sets peak memory.")
     parser.add_argument("--compare-logits", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("artifacts/reliability.csv"))
@@ -88,7 +92,7 @@ def main() -> None:
             ratings = rater.sample_ratings(
                 str(row.image_path), question,
                 n_samples=args.n_samples, temperature=args.temperature,
-                return_text=True,
+                batch_size=args.sample_batch_size, return_text=True,
             )
             kinds = [classify_response(text) for text in ratings]
             valid = [k["rating"] for k in kinds if not math.isnan(k["rating"])]
