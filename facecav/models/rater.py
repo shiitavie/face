@@ -17,13 +17,17 @@ from PIL import Image
 from ..analysis.bradley_terry import counterbalanced_preference
 from .prompting import (
     ASSISTANT_PREFIX,
+    QUESTION,
     COMPARISON_OPTIONS,
     COMPARISON_PREFIX,
     build_comparison_messages,
     build_messages,
 )
 from .scoring import (
+    SCALE_MAX,
+    SCALE_MIN,
     RatingTokenError,
+    parse_rating,
     expected_rating,
     refusal_mass,
     resolve_rating_tokens,
@@ -152,3 +156,52 @@ class VLMRater:
             "p_b_first": p_ba,
             **counterbalanced_preference(p_ab, p_ba),
         }
+
+    @torch.no_grad()
+    def sample_ratings(
+        self,
+        image_path: str,
+        question: str,
+        n_samples: int = 20,
+        temperature: float = 1.0,
+        max_new_tokens: int = 12,
+    ) -> list[float]:
+        """Sample ``n_samples`` ratings by generation, parsing each as text.
+
+        The logit path (``expected_rating``) is exact but needs open weights.
+        Most commercial APIs expose no logprobs, so the reliability battery has
+        to read sampled text instead. Implementing the same path here lets the
+        two be compared head to head on a model where both are available, which
+        is what licenses using sampling for the API models.
+
+        Returns one value per sample; NaN marks a refusal or an unparseable
+        answer, and those are kept rather than dropped so the refusal rate stays
+        measurable.
+        """
+        messages = build_messages(query_image=image_path)
+        text = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+        text = text.replace(QUESTION, question) + ASSISTANT_PREFIX
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(
+            text=[text], images=[image], return_tensors="pt"
+        ).to(self.device)
+
+        generated = self.model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=temperature,
+            num_return_sequences=n_samples,
+        )
+        tokenizer = getattr(self.processor, "tokenizer", self.processor)
+        prompt_length = inputs["input_ids"].shape[1]
+        return [
+            parse_rating(
+                tokenizer.decode(sequence[prompt_length:], skip_special_tokens=True),
+                scale_max=SCALE_MAX,
+                scale_min=SCALE_MIN,
+            )
+            for sequence in generated
+        ]

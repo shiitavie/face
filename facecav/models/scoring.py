@@ -97,3 +97,42 @@ def resolve_rating_tokens(tokenizer) -> list[int]:
                 "drop this model per spec section 5.6"
             )
     return ids
+
+
+# --- free-text parsing, for models that expose no logprobs ---
+
+import math
+import re
+
+#: Phrases that mark a declined answer. A model that says "attractiveness is
+#: subjective" and then names a number is still hedging, but the number it gives
+#: is not a rating -- counting it would turn a refusal into data.
+_REFUSAL_MARKERS = (
+    "i can't", "i cannot", "i can not", "i'm not able", "i am not able",
+    "unable to", "won't", "will not", "subjective", "inappropriate",
+    "not appropriate", "i'm sorry", "i am sorry",
+)
+
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def parse_rating(text: str, scale_max: int = 7, scale_min: int = 1) -> float:
+    """First in-range number in ``text``, or NaN.
+
+    Commercial APIs mostly expose no logprobs, so the reliability battery has to
+    read sampled text to cover the models clinicians actually use. Parsing is
+    deliberately conservative: a wrong parse is worse than a refusal, because it
+    enters the analysis silently as if it were a judgment.
+
+    Takes the FIRST in-range number so that "4 out of 7" yields 4, not 7.
+    """
+    if not text or not text.strip():
+        return math.nan
+    if any(marker in text.lower() for marker in _REFUSAL_MARKERS):
+        return math.nan
+
+    for match in _NUMBER.finditer(text):
+        value = float(match.group())
+        if scale_min <= value <= scale_max:
+            return value
+    return math.nan
