@@ -116,15 +116,23 @@ def main() -> None:
         print(f"  {'':<22} {rendered_top}")
         return int(values.argmax())
 
+    config = rater.model.generation_config
+    print(f"  generation_config: repetition_penalty={config.repetition_penalty}  "
+          f"top_k={config.top_k}  top_p={config.top_p}  temperature={config.temperature}\n")
+
     with torch.no_grad():
         step0 = rater.model.generate(
             **inputs,
             max_new_tokens=1,
             do_sample=False,
             output_scores=True,
+            output_logits=True,
             return_dict_in_generate=True,
         )
-    generate_argmax = summarise("generate step-0", step0.scores[0][0])
+    # scores are POST-logits-processor (repetition penalty applied);
+    # logits are the raw model outputs and should match the forward pass.
+    generate_argmax = summarise("generate scores (processed)", step0.scores[0][0])
+    summarise("generate logits (raw)", step0.logits[0][0])
 
     with torch.no_grad():
         repeat = rater.model(**inputs).logits[0, -1, :]
