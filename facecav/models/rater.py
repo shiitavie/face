@@ -14,8 +14,19 @@ from dataclasses import dataclass, field
 import torch
 from PIL import Image
 
-from .prompting import ASSISTANT_PREFIX, build_messages
-from .scoring import expected_rating, refusal_mass, resolve_rating_tokens
+from .prompting import (
+    ASSISTANT_PREFIX,
+    COMPARISON_OPTIONS,
+    COMPARISON_PREFIX,
+    build_comparison_messages,
+    build_messages,
+)
+from .scoring import (
+    RatingTokenError,
+    expected_rating,
+    refusal_mass,
+    resolve_rating_tokens,
+)
 
 
 @dataclass
@@ -63,6 +74,7 @@ class VLMRater:
         # Raises RatingTokenError if the scale is not single-token here, which
         # is the spec 5.6 gate for dropping a model.
         self.rating_token_ids = resolve_rating_tokens(tokenizer)
+        self.option_token_ids = self._option_token_ids()
 
     def _render(self, messages, images: Sequence[Image.Image]):
         text = self.processor.apply_chat_template(
@@ -93,3 +105,48 @@ class VLMRater:
             refusal_mass=refusal_mass(logits, self.rating_token_ids).item(),
             rating_probs=probabilities.tolist(),
         )
+
+    def _option_token_ids(self) -> list[int]:
+        tokenizer = getattr(self.processor, "tokenizer", self.processor)
+        ids = []
+        for option in COMPARISON_OPTIONS:
+            for candidate in (option, f" {option}"):
+                encoded = tokenizer.encode(candidate, add_special_tokens=False)
+                if len(encoded) == 1:
+                    ids.append(encoded[0])
+                    break
+            else:
+                raise RatingTokenError(f"{option!r} is not a single token")
+        return ids
+
+    @torch.no_grad()
+    def _probability_first(self, path_a: str, path_b: str) -> float:
+        messages = build_comparison_messages(path_a, path_b)
+        text = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+        images = [Image.open(p).convert("RGB") for p in (path_a, path_b)]
+        inputs = self.processor(
+            text=[text + COMPARISON_PREFIX], images=images, return_tensors="pt"
+        ).to(self.device)
+        logits = self.model(**inputs).logits[0, -1, :].float()
+        option_ids = torch.tensor(self.option_token_ids, device=logits.device)
+        return torch.softmax(logits.index_select(0, option_ids), dim=-1)[0].item()
+
+    def compare(self, path_a: str, path_b: str) -> dict:
+        """Counterbalanced preference for ``a`` over ``b``.
+
+        Scores the pair in both presentation orders and averages. This is not
+        optional: the model prefers whichever image is second in ~87-98% of
+        trials, and a single order gives chance-level accuracy (53%) where the
+        counterbalanced average gives 81%.
+        """
+        p_ab = self._probability_first(path_a, path_b)
+        p_ba = self._probability_first(path_b, path_a)
+        return {
+            "p_a_first": p_ab,
+            "p_b_first": p_ba,
+            "preference_a": (p_ab + (1.0 - p_ba)) / 2.0,
+            # 0.5 means no position bias; observed values run far below it.
+            "slot1_bias": (p_ab + p_ba) / 2.0,
+        }

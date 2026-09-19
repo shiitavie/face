@@ -54,3 +54,46 @@ def count_images(messages: Sequence[dict]) -> int:
         for part in message["content"]
         if part.get("type") == "image"
     )
+
+
+# --- pairwise comparison ---
+#
+# The absolute 1-7 scale is not a usable instrument for this model: flipping
+# which end means "most attractive", with the digits and their order held fixed,
+# left ratings correlated at +0.982. The model reads the digits' form, not the
+# scale's meaning.
+#
+# Counterbalanced pairwise comparison does work. Against CFD human norms it
+# reaches 100% accuracy on clearly-different pairs and 81% overall, versus 53%
+# (chance) from a single presentation order -- the model carries a strong,
+# near-constant preference for whichever image comes second, and averaging the
+# two orders cancels it.
+
+COMPARISON_QUESTION = (
+    "Which of these two people is more attractive, the first or the second?"
+)
+
+#: Deliberately stops before naming either option. Naming one would anchor the
+#: answer, which is what destroyed the absolute rating scale.
+COMPARISON_PREFIX = "The answer is the "
+
+COMPARISON_OPTIONS = ("first", "second")
+
+
+def build_comparison_messages(image_a: str, image_b: str) -> list[dict]:
+    """Chat messages asking which of two faces is more attractive.
+
+    Ordinal phrasing ("first"/"second") rather than A/B labels: on the
+    nose-width positive control, ordinal reached 93.3% order consistency and
+    80% accuracy against A/B labels' 76.7% and 75%.
+
+    Always call this twice per pair, with the images swapped, and average.
+    """
+    return [{
+        "role": "user",
+        "content": [
+            {"type": "image", "image": image_a},
+            {"type": "image", "image": image_b},
+            {"type": "text", "text": COMPARISON_QUESTION},
+        ],
+    }]

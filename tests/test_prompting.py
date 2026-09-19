@@ -34,3 +34,33 @@ def test_demonstration_order_is_preserved():
     messages = build_messages(demonstrations=[("a.jpg", 7), ("b.jpg", 1)])
     answers = [str(m) for m in messages if m["role"] == "assistant"]
     assert "7" in answers[0] and "1" in answers[1]
+
+
+# --- pairwise comparison (the surviving instrument) ---
+
+from facecav.models.prompting import COMPARISON_PREFIX, build_comparison_messages
+
+
+def test_comparison_prompt_carries_exactly_two_images():
+    messages = build_comparison_messages("a.jpg", "b.jpg")
+    assert count_images(messages) == 2
+
+
+def test_comparison_prompt_asks_first_or_second():
+    # The A/B-label format measured worse than ordinal on the positive control
+    # (76.7% vs 93.3% order consistency), so ordinal is what we use.
+    text = str(build_comparison_messages("a.jpg", "b.jpg"))
+    assert "first" in text and "second" in text
+
+
+def test_comparison_images_appear_in_the_order_given():
+    messages = build_comparison_messages("left.jpg", "right.jpg")
+    images = [p["image"] for m in messages for p in m["content"] if p.get("type") == "image"]
+    assert images == ["left.jpg", "right.jpg"]
+
+
+def test_comparison_prefix_does_not_name_either_option():
+    # Naming an option in the prefix would anchor the answer, the same failure
+    # that killed the absolute rating scale.
+    assert "first" not in COMPARISON_PREFIX
+    assert "second" not in COMPARISON_PREFIX
