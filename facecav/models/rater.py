@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import torch
 from PIL import Image
 
+from ..analysis.bradley_terry import counterbalanced_preference
 from .prompting import (
     ASSISTANT_PREFIX,
     COMPARISON_OPTIONS,
@@ -143,10 +144,11 @@ class VLMRater:
         """
         p_ab = self._probability_first(path_a, path_b)
         p_ba = self._probability_first(path_b, path_a)
+        # Raw probabilities are always persisted: they are the primitive
+        # observation, and any change to the counterbalancing can be applied
+        # retrospectively without rerunning the model.
         return {
             "p_a_first": p_ab,
             "p_b_first": p_ba,
-            "preference_a": (p_ab + (1.0 - p_ba)) / 2.0,
-            # 0.5 means no position bias; observed values run far below it.
-            "slot1_bias": (p_ab + p_ba) / 2.0,
+            **counterbalanced_preference(p_ab, p_ba),
         }

@@ -23,7 +23,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from facecav.analysis.bradley_terry import fit_bradley_terry
+from facecav.analysis.bradley_terry import (
+    counterbalanced_preference,
+    fit_bradley_terry,
+)
 from facecav.data.cfd import NORMING_WORKBOOK, build_manifest
 
 CELL = ["race_code", "gender_code"]
@@ -50,10 +53,27 @@ def main() -> None:
         raise SystemExit(f"no CFD norming workbook under {args.cfd_root!s}")
 
     comparisons = pd.read_json(args.comparisons, lines=True)
+
+    # Always recompute from the raw probabilities rather than trusting a stored
+    # preference. Records written before the log-odds fix carry a preference
+    # averaged in probability space, which collapses to ~0.5 under the observed
+    # saturation; recomputing repairs them without rerunning the model.
+    recomputed = [
+        counterbalanced_preference(a, b)
+        for a, b in zip(comparisons.p_a_first, comparisons.p_b_first)
+    ]
+    comparisons["preference_a"] = [r["preference_a"] for r in recomputed]
+    comparisons["position_logit"] = [r["position_logit"] for r in recomputed]
+
     print(f"comparisons: {len(comparisons)}   "
           f"faces: {len(set(comparisons.face_a) | set(comparisons.face_b))}")
-    print(f"mean slot-1 bias: {comparisons.slot1_bias.mean():.3f}  "
-          f"(0.5 = none; averaging the two orders removes it)\n")
+    print(f"position bias: {comparisons.position_logit.mean():+.2f} log-odds "
+          f"(P(pick first) = {1 / (1 + np.exp(-comparisons.position_logit.mean())):.3f} "
+          f"with content held equal)")
+    print(f"preference spread: {comparisons.preference_a.std():.3f} sd, "
+          f"range {comparisons.preference_a.min():.3f}-{comparisons.preference_a.max():.3f}")
+    print("  A spread near zero means the counterbalancing collapsed and the")
+    print("  Bradley-Terry fit will be uninformative.\n")
 
     strengths = fit_bradley_terry(
         zip(comparisons.face_a, comparisons.face_b, comparisons.preference_a)

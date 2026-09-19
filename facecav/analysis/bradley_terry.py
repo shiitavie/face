@@ -32,6 +32,43 @@ from scipy.optimize import minimize
 _EPSILON = 1e-6
 
 
+def counterbalanced_preference(p_a_first: float, p_b_first: float) -> dict:
+    """Remove position bias from a pair scored in both presentation orders.
+
+    ``p_a_first`` is P(model picks the first image) with A shown first;
+    ``p_b_first`` is the same quantity with B shown first.
+
+    The model's position bias is additive in log-odds, not in probability::
+
+        logit P(pick first) = beta + (theta_first - theta_second)
+
+    so the two orders give ``beta + delta`` and ``beta - delta``. Half their
+    difference is the preference with ``beta`` cancelled; half their sum is the
+    bias itself.
+
+    Averaging in probability space instead -- ``(p_ab + 1 - p_ba) / 2`` -- looks
+    equivalent but is not. The model picks the second image in ~99% of trials,
+    so both inputs saturate near zero and the average collapses to ~0.5,
+    destroying the signal. Observed pairs differing 16-fold in raw probability
+    came out as 0.489.
+    """
+    logit_ab = _logit(p_a_first)
+    logit_ba = _logit(p_b_first)
+
+    preference_logit = (logit_ab - logit_ba) / 2.0
+    return {
+        "preference_logit": preference_logit,
+        "preference_a": 1.0 / (1.0 + np.exp(-preference_logit)),
+        # Estimated log-odds of picking the first slot with content held equal.
+        "position_logit": (logit_ab + logit_ba) / 2.0,
+    }
+
+
+def _logit(p: float) -> float:
+    p = min(max(float(p), _EPSILON), 1.0 - _EPSILON)
+    return float(np.log(p / (1.0 - p)))
+
+
 def fit_bradley_terry(
     comparisons: Iterable[Sequence],
     regularization: float = 1e-3,
