@@ -115,7 +115,7 @@ class ClaudeRater:
     def _build_client(self):
         anthropic = self._anthropic
         try:
-            client = anthropic.Anthropic()
+            client = anthropic.Anthropic(max_retries=8)
             client.messages.count_tokens(  # free, but proves the credential works
                 model=self.model, messages=[{"role": "user", "content": "x"}]
             )
@@ -131,7 +131,8 @@ class ClaudeRater:
             )
         self._using_oauth = True
         return anthropic.Anthropic(
-            auth_token=token, default_headers={"anthropic-beta": OAUTH_BETA}
+            auth_token=token, max_retries=8,
+            default_headers={"anthropic-beta": OAUTH_BETA},
         )
 
     def _refresh(self) -> None:
@@ -173,21 +174,34 @@ class ClaudeRater:
         image_b64, media_type = encode_image(image_path, self.max_dimension)
 
         def one(_):
-            for attempt in range(4):
+            attempts = 8
+            for attempt in range(attempts):
                 try:
                     response = self._message(image_b64, media_type, question)
                     break
                 except self._anthropic.AuthenticationError:
                     # OAuth access tokens expire mid-run; refresh and retry.
                     self._refresh()
-                except self._anthropic.RateLimitError as error:
-                    if attempt == 3:
+                except self._anthropic.APIStatusError as error:
+                    # 429 and every 5xx -- including 529 Overloaded, which is
+                    # transient and common under load -- are worth retrying.
+                    # A 4xx other than 429 will not improve on retry.
+                    status = getattr(error, "status_code", 0)
+                    if status != 429 and status < 500:
                         raise
-                    delay = float(
-                        getattr(error, "response", None)
-                        and error.response.headers.get("retry-after", 0) or 0
-                    ) or 2.0 ** attempt
-                    time.sleep(delay)
+                    if attempt == attempts - 1:
+                        raise
+                    retry_after = 0.0
+                    response_obj = getattr(error, "response", None)
+                    if response_obj is not None:
+                        retry_after = float(
+                            response_obj.headers.get("retry-after", 0) or 0
+                        )
+                    time.sleep(retry_after or min(2.0 ** attempt, 60.0))
+                except self._anthropic.APIConnectionError:
+                    if attempt == attempts - 1:
+                        raise
+                    time.sleep(min(2.0 ** attempt, 60.0))
             else:
                 raise RuntimeError("exhausted retries")
             usage = response.usage

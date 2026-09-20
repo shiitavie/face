@@ -18,6 +18,7 @@ Prints a cost estimate and requires --yes before spending anything.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
 
@@ -84,36 +85,58 @@ def main() -> None:
 
     rater = ClaudeRater(args.model, max_dimension=args.max_dimension)
 
-    records, per_image = [], {}
-    for variant, question in selected.items():
-        print(f"  {variant}...")
-        for n, row in enumerate(sample.itertuples(), start=1):
+    out = args.out or Path(f"artifacts/reliability_{args.model.replace('/', '__')}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # Append-only JSONL alongside the CSV: this run costs money, so a transient
+    # 529 partway through must not mean paying for the whole thing again.
+    journal = out.with_suffix(".jsonl")
+    done = set()
+    if journal.exists():
+        with journal.open() as handle:
+            for line in handle:
+                record = json.loads(line)
+                done.add((record["variant"], record["model_id"]))
+        print(f"  resuming: {len(done)} image-variants already recorded\n")
+
+    todo = [
+        (variant, row)
+        for variant in selected
+        for row in sample.itertuples()
+        if (variant, row.model_id) not in done
+    ]
+
+    with journal.open("a") as handle:
+        for n, (variant, row) in enumerate(todo, start=1):
             kinds = rater.sample_ratings(
-                str(row.image_path), question,
+                str(row.image_path), selected[variant],
                 n_samples=args.n_samples, concurrency=args.concurrency,
             )
             valid = [k["rating"] for k in kinds if not math.isnan(k["rating"])]
-            per_image.setdefault(variant, {})[row.model_id] = valid
-            records.append({
+            record = {
                 "model": args.model,
                 "variant": variant,
                 "model_id": row.model_id,
                 "race_code": row.race_code,
                 "gender_code": row.gender_code,
-                "mean_rating": np.mean(valid) if valid else math.nan,
-                "sd_within_image": np.std(valid) if len(valid) > 1 else math.nan,
-                "refusal_rate": np.mean([k["kind"] == "refusal" for k in kinds]),
-                "hedge_rate": np.mean([k["kind"] == "hedged" for k in kinds]),
-                "unparseable_rate": np.mean([k["kind"] == "unparseable" for k in kinds]),
-            })
-            if n % 10 == 0:
-                print(f"    {n}/{len(sample)}   spent so far "
+                "ratings": valid,
+                "mean_rating": float(np.mean(valid)) if valid else None,
+                "sd_within_image": float(np.std(valid)) if len(valid) > 1 else None,
+                "refusal_rate": float(np.mean([k["kind"] == "refusal" for k in kinds])),
+                "hedge_rate": float(np.mean([k["kind"] == "hedged" for k in kinds])),
+                "unparseable_rate": float(np.mean([k["kind"] == "unparseable" for k in kinds])),
+            }
+            handle.write(json.dumps(record) + "\n")
+            handle.flush()
+            if n % 10 == 0 or n == len(todo):
+                print(f"    {n}/{len(todo)}   spent this session "
                       f"${rater.usage.cost(*PRICES.get(args.model, (5.0, 25.0))):.2f}")
 
-    results = pd.DataFrame(records)
-    out = args.out or Path(f"artifacts/reliability_{args.model.replace('/', '__')}.csv")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    results.to_csv(out, index=False)
+    results = pd.read_json(journal, lines=True)
+    per_image = {
+        variant: dict(zip(block.model_id, block.ratings))
+        for variant, block in results.groupby("variant")
+    }
+    results.drop(columns=["ratings"]).to_csv(out, index=False)
 
     wide = results.pivot(index="model_id", columns="variant", values="mean_rating")
     reliabilities = {v: split_half_reliability(s) for v, s in per_image.items()}
