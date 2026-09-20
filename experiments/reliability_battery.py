@@ -166,12 +166,37 @@ def main() -> None:
     print("  correlation below is attenuated toward zero. Corrected values are")
     print("  shown alongside; they are estimates, not measurements.")
 
+    # Run the validation BEFORE anything that can fail on a missing variant:
+    # this is the number the whole run exists to produce.
+    if args.compare_logits:
+        print("\n" + "=" * 70)
+        print("VALIDATION -- sampled text vs logits on the same model")
+        print("=" * 70)
+        logit_scores = [
+            rater.rate(str(row.image_path)).expected_rating
+            for row in sample.itertuples()
+        ]
+        sampled = wide.loc[[r.model_id for r in sample.itertuples()], "baseline"]
+        agreement = pd.Series(logit_scores).corr(
+            pd.Series(sampled.values), method="spearman"
+        )
+        # The logit readout is deterministic, so its reliability is 1.
+        corrected = disattenuate(agreement, 1.0, reliabilities["baseline"])
+        print(f"  rho(logit expected rating, sampled mean) = {agreement:+.3f}   "
+              f"corrected {corrected:+.3f}")
+        print("  High agreement licenses using the sampled path on API models,")
+        print("  which expose no logprobs. Low agreement means the battery's")
+        print("  results are about the readout, not the model.")
+
     print("\n" + "=" * 70)
     print("TEST 1 -- SCALE SEMANTICS   (same digits, same order, opposite meaning)")
     print("=" * 70)
-    observed, corrected = rho("7_is_best", "1_is_best")
-    print(f"  rho('7 is best', '1 is best') = {observed:+.3f}   "
-          f"corrected {corrected:+.3f}")
+    if {"7_is_best", "1_is_best"} <= set(wide.columns):
+        observed, corrected = rho("7_is_best", "1_is_best")
+        print(f"  rho('7 is best', '1 is best') = {observed:+.3f}   "
+              f"corrected {corrected:+.3f}")
+    else:
+        print("  (skipped -- needs both '7_is_best' and '1_is_best')")
     if {"7_is_best", "1_is_best"} <= set(wide.columns):
         print(f"  means: {wide['7_is_best'].mean():.3f} vs "
               f"{wide['1_is_best'].mean():.3f}")
@@ -192,6 +217,9 @@ def main() -> None:
     print("TEST 3 -- PARAPHRASE ROBUSTNESS   (rank agreement is what matters)")
     print("=" * 70)
     for other in ("spelled", "paraphrase"):
+        if not {"baseline", other} <= set(wide.columns):
+            print(f"  (skipped {other} -- not among the variants run)")
+            continue
         observed, corrected = rho("baseline", other)
         print(f"  rho(baseline, {other:<11}) = {observed:+.3f}   "
               f"corrected {corrected:+.3f}   "
@@ -209,26 +237,6 @@ def main() -> None:
     if by_race.max() - by_race.min() > 0.01:
         print("\n  refusal by race -- differential refusal is itself a finding:")
         print(by_race.round(3).to_string())
-
-    if args.compare_logits:
-        print("\n" + "=" * 70)
-        print("VALIDATION -- sampled text vs logits on the same model")
-        print("=" * 70)
-        logit_scores = [
-            rater.rate(str(row.image_path)).expected_rating
-            for row in sample.itertuples()
-        ]
-        sampled = wide.loc[[r.model_id for r in sample.itertuples()], "baseline"]
-        agreement = pd.Series(logit_scores).corr(
-            pd.Series(sampled.values), method="spearman"
-        )
-        # The logit readout is deterministic, so its reliability is 1.
-        corrected = disattenuate(agreement, 1.0, reliabilities["baseline"])
-        print(f"  rho(logit expected rating, sampled mean) = {agreement:+.3f}   "
-              f"corrected {corrected:+.3f}")
-        print("  High agreement licenses using the sampled path on API models,")
-        print("  which expose no logprobs. Low agreement means the battery's")
-        print("  results are about the readout, not the model.")
 
     print(f"\nwrote {args.out}")
 
