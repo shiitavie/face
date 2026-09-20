@@ -8,7 +8,8 @@
 ## 1. Overview and rationale
 
 Multimodal large language models are increasingly used to score facial images on
-Likert-type scales, including for aesthetic and surgical outcome assessment. Such use
+Likert-type scales by prompting alone, including for aesthetic and surgical outcome
+assessment. Such use
 assumes the resulting number behaves as a measurement: that it reflects the image, that
 it responds to the scale as defined, and that repeating the query returns approximately
 the same value. None of these assumptions has been tested.
@@ -22,6 +23,34 @@ The design is deliberately adversarial. Each test isolates one way the number co
 produced by something other than the image.
 
 ---
+
+### 1.1 Relationship to prior work in aesthetic surgery
+
+AI-derived aesthetic scoring has already entered the surgical outcomes literature.
+Rames et al. applied trained ensemble models for perceived age and perceived
+attractiveness to 676 patients from the ASPS Before and After gallery, deriving a
+composite aesthetic benefit score and using it to compare procedures and identify
+patient factors associated with greater benefit.[^rames] That work establishes both the
+clinical appetite for objective aesthetic outcome measurement and the feasibility of
+applying computer vision at scale to surgical photographs.
+
+**Our scope is different and complementary.** Rames et al. use purpose-trained
+supervised ensembles, fit to human ratings and validated against them. We examine
+*general-purpose multimodal large language models* prompted to produce ratings
+directly — the tool a clinician reaches for without training anything, and increasingly
+the one used informally to score photographs. These are different instruments with
+different failure modes: a supervised regressor is calibrated to its training
+distribution by construction, whereas a prompted model's output depends on how the
+question is worded.
+
+The present study asks what validation a prompted multimodal model requires **before**
+it is used the way trained models are now being used. Nothing here bears on the
+validity of purpose-trained models.
+
+[^rames]: Rames JD, Lipinski A, Alameddine KO, Kreutz-Rodrigues L, Sinha K,
+Martinez-Jorge J, Sharaf BA. Objectifying Outcomes in Facial Aesthetic Surgery Using
+Artificial Intelligence. *Plast Reconstr Surg.* Advance online article.
+doi:10.1097/PRS.0000000000013412
 
 ## 2. Stimuli
 
