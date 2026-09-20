@@ -230,3 +230,24 @@ class VLMRater:
             parse_rating(text, scale_max=SCALE_MAX, scale_min=SCALE_MIN)
             for text in texts
         ]
+
+    @torch.no_grad()
+    def rate_with_question(self, image_path: str, question: str) -> float:
+        """Exact expected rating for an arbitrary question wording.
+
+        ``rate`` uses the fixed default question. The reliability battery varies
+        the wording, so comparing readouts requires scoring the same variant
+        through both paths -- otherwise a difference between them confounds the
+        readout with the prompt.
+        """
+        messages = build_messages(query_image=image_path)
+        text = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+        text = text.replace(QUESTION, question) + ASSISTANT_PREFIX
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(
+            text=[text], images=[image], return_tensors="pt"
+        ).to(self.device)
+        logits = self.model(**inputs).logits[0, -1, :].float()
+        return float(expected_rating(logits, self.rating_token_ids).item())

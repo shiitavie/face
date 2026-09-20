@@ -114,6 +114,10 @@ def main() -> None:
                 batch_size=args.sample_batch_size, return_text=True,
             )
             kinds = [classify_response(text) for text in ratings]
+            logit_rating = (
+                rater.rate_with_question(str(row.image_path), question)
+                if args.compare_logits else math.nan
+            )
             valid = [k["rating"] for k in kinds if not math.isnan(k["rating"])]
             per_image.setdefault(variant, {})[row.model_id] = valid
             records.append({
@@ -128,6 +132,7 @@ def main() -> None:
                 "refusal_rate": np.mean([k["kind"] == "refusal" for k in kinds]),
                 "hedge_rate": np.mean([k["kind"] == "hedged" for k in kinds]),
                 "unparseable_rate": np.mean([k["kind"] == "unparseable" for k in kinds]),
+                "logit_rating": logit_rating,
             })
 
             done += 1
@@ -170,20 +175,34 @@ def main() -> None:
     # this is the number the whole run exists to produce.
     if args.compare_logits:
         print("\n" + "=" * 70)
-        print("VALIDATION -- sampled text vs logits on the same model")
+        print("VALIDATION -- sampled text vs logits, per variant")
         print("=" * 70)
-        logit_scores = [
-            rater.rate(str(row.image_path)).expected_rating
-            for row in sample.itertuples()
-        ]
-        sampled = wide.loc[[r.model_id for r in sample.itertuples()], "baseline"]
-        agreement = pd.Series(logit_scores).corr(
-            pd.Series(sampled.values), method="spearman"
+        print(f"{'variant':<12} {'rho(logit, sampled)':>20} {'corrected':>10}")
+        print("-" * 44)
+        for variant in selected:
+            block = results[results.variant == variant].dropna(
+                subset=["mean_rating", "logit_rating"]
+            )
+            if len(block) <= 2:
+                continue
+            agreement = block.logit_rating.corr(block.mean_rating, method="spearman")
+            # The logit readout is deterministic, so its reliability is 1.
+            corrected = disattenuate(agreement, 1.0, reliabilities[variant])
+            print(f"{variant:<12} {agreement:>+20.3f} {corrected:>+10.3f}")
+
+        logit_wide = results.pivot(
+            index="model_id", columns="variant", values="logit_rating"
         )
-        # The logit readout is deterministic, so its reliability is 1.
-        corrected = disattenuate(agreement, 1.0, reliabilities["baseline"])
-        print(f"  rho(logit expected rating, sampled mean) = {agreement:+.3f}   "
-              f"corrected {corrected:+.3f}")
+        if {"7_is_best", "1_is_best"} <= set(logit_wide.columns):
+            pair = logit_wide[["7_is_best", "1_is_best"]].dropna()
+            print("\n  SCALE SEMANTICS BY READOUT, identical images and resolution:")
+            print(f"    logit readout   rho = "
+                  f"{pair['7_is_best'].corr(pair['1_is_best'], method='spearman'):+.3f}")
+            sampled_pair = wide[["7_is_best", "1_is_best"]].dropna()
+            print(f"    sampled readout rho = "
+                  f"{sampled_pair['7_is_best'].corr(sampled_pair['1_is_best'], method='spearman'):+.3f}")
+            print("    A gap here is the readout alone -- images, resolution and")
+            print("    prompts are held fixed between the two.")
         print("  High agreement licenses using the sampled path on API models,")
         print("  which expose no logprobs. Low agreement means the battery's")
         print("  results are about the readout, not the model.")
