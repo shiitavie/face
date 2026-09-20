@@ -56,11 +56,9 @@ def main() -> None:
 
     manifest = build_manifest(args.cfd_root)
     matched = manifest[manifest.join_status == "matched"]
-    sample = (
-        matched.groupby(["race_code", "gender_code"], group_keys=False)
-        .apply(lambda g: g.head(args.per_cell))
-        .reset_index(drop=True)
-    )
+    sample = matched.groupby(["race_code", "gender_code"]).head(
+        args.per_cell
+    ).reset_index(drop=True)
 
     rater = VLMRater(args.model, device=args.device, max_pixels=args.max_pixels)
     ids = torch.tensor(rater.rating_token_ids, device=args.device)

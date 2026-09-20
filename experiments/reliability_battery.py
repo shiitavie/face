@@ -75,11 +75,12 @@ def main() -> None:
     matched = build_manifest(args.cfd_root)
     matched = matched[matched.join_status == "matched"]
     # Stratify so the refusal-by-group test has balanced cells.
-    sample = (
-        matched.groupby(["race_code", "gender_code"], group_keys=False)
-        .apply(lambda g: g.head(max(1, args.n_images // 12)), include_groups=False)
-        .reset_index(drop=True)
-    )
+    # groupby().head() keeps every column; .apply(g.head()) needs
+    # include_groups=False under pandas 2.x, which silently drops the grouping
+    # columns we stratified on.
+    sample = matched.groupby(["race_code", "gender_code"]).head(
+        max(1, args.n_images // 12)
+    ).reset_index(drop=True)
 
     rater = VLMRater(args.model, device=args.device, max_pixels=args.max_pixels)
     print(f"model: {args.model}   images: {len(sample)}   "
