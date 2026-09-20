@@ -221,3 +221,71 @@ class ClaudeRater:
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 results.extend(pool.map(one, range(n_samples - 1)))
         return results
+
+
+    def _compare_message(self, images, question):
+        content = []
+        for image_b64, media_type in images:
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+            })
+        content.append({"type": "text", "text": question})
+        return self.client.messages.create(
+            model=self.model,
+            max_tokens=8,
+            system=(
+                "You are participating in a perception study. Answer with exactly "
+                "one word, either 'first' or 'second'. No explanation."
+            ),
+            messages=[{"role": "user", "content": content}],
+        )
+
+    def compare(self, path_a: str, path_b: str, question: str) -> dict:
+        """Counterbalanced comparison: both presentation orders, averaged.
+
+        Claude exposes no log-probabilities, so preference is estimated from the
+        chosen word rather than from token probabilities. With a deterministic
+        model a single sample per order suffices; the value is what the two
+        orders agree on, not the confidence of either.
+        """
+        encoded_a = encode_image(path_a, self.max_dimension)
+        encoded_b = encode_image(path_b, self.max_dimension)
+
+        def choose(images) -> str | None:
+            for attempt in range(6):
+                try:
+                    response = self._compare_message(images, question)
+                    break
+                except self._anthropic.APIStatusError as error:
+                    status = getattr(error, "status_code", 0)
+                    if (status != 429 and status < 500) or attempt == 5:
+                        raise
+                    time.sleep(min(2.0 ** attempt, 60.0))
+                except self._anthropic.AuthenticationError:
+                    self._refresh()
+            usage = response.usage
+            self.usage.input_tokens += usage.input_tokens
+            self.usage.output_tokens += usage.output_tokens
+            self.usage.cache_write_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
+            self.usage.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
+            text = "".join(b.text for b in response.content if b.type == "text").strip().lower()
+            if "first" in text:
+                return "first"
+            if "second" in text:
+                return "second"
+            return None
+
+        ab = choose([encoded_a, encoded_b])   # a shown first
+        ba = choose([encoded_b, encoded_a])   # b shown first
+        # a wins when it is chosen in whichever slot it occupies.
+        a_wins_ab = ab == "first"
+        a_wins_ba = ba == "second"
+        return {
+            "choice_ab": ab,
+            "choice_ba": ba,
+            # Orders agree on a winner -- the only order-invariant evidence here.
+            "consistent": (ab is not None and ba is not None and a_wins_ab == a_wins_ba),
+            "prefers_a": a_wins_ab and a_wins_ba,
+            "prefers_b": (not a_wins_ab) and (not a_wins_ba),
+        }
