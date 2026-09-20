@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import io
 import math
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -71,14 +72,71 @@ def encode_image(path: str, max_dimension: int = DEFAULT_MAX_DIMENSION) -> tuple
     return base64.standard_b64encode(buffer.getvalue()).decode(), "image/jpeg"
 
 
+#: OAuth access tokens from `ant auth login` go on Authorization: Bearer and
+#: need this beta header. They are short-lived, so a long batch has to be able
+#: to refresh mid-run.
+OAUTH_BETA = "oauth-2025-04-20"
+
+
+def _oauth_token() -> str | None:
+    """Current access token from the `ant` CLI, or None if unavailable."""
+    import shutil
+    import subprocess
+
+    if shutil.which("ant") is None:
+        return None
+    result = subprocess.run(
+        ["ant", "auth", "print-credentials", "--access-token"],
+        capture_output=True, text=True,
+    )
+    token = result.stdout.strip()
+    return token or None
+
+
 class ClaudeRater:
+    """Rates faces through the Anthropic API.
+
+    Resolves credentials in the SDK's own order, then falls back to an OAuth
+    access token from `ant auth login` -- which SDK versions before 1.x do not
+    read from the profile on disk. The token is refreshed on an authentication
+    failure so a long run survives its expiry.
+    """
+
     def __init__(self, model: str = "claude-opus-5", max_dimension: int = DEFAULT_MAX_DIMENSION):
         import anthropic
 
-        self.client = anthropic.Anthropic()
+        self._anthropic = anthropic
         self.model = model
         self.max_dimension = max_dimension
         self.usage = ClaudeUsage()
+        self._using_oauth = False
+        self.client = self._build_client()
+
+    def _build_client(self):
+        anthropic = self._anthropic
+        try:
+            client = anthropic.Anthropic()
+            client.messages.count_tokens(  # free, but proves the credential works
+                model=self.model, messages=[{"role": "user", "content": "x"}]
+            )
+            return client
+        except Exception:
+            pass
+
+        token = _oauth_token()
+        if token is None:
+            raise SystemExit(
+                "No Anthropic credential. Either export ANTHROPIC_API_KEY, or run "
+                "`ant auth login` (the OAuth profile is used automatically)."
+            )
+        self._using_oauth = True
+        return anthropic.Anthropic(
+            auth_token=token, default_headers={"anthropic-beta": OAUTH_BETA}
+        )
+
+    def _refresh(self) -> None:
+        if self._using_oauth:
+            self.client = self._build_client()
 
     def _message(self, image_b64: str, media_type: str, question: str):
         return self.client.messages.create(
@@ -115,7 +173,23 @@ class ClaudeRater:
         image_b64, media_type = encode_image(image_path, self.max_dimension)
 
         def one(_):
-            response = self._message(image_b64, media_type, question)
+            for attempt in range(4):
+                try:
+                    response = self._message(image_b64, media_type, question)
+                    break
+                except self._anthropic.AuthenticationError:
+                    # OAuth access tokens expire mid-run; refresh and retry.
+                    self._refresh()
+                except self._anthropic.RateLimitError as error:
+                    if attempt == 3:
+                        raise
+                    delay = float(
+                        getattr(error, "response", None)
+                        and error.response.headers.get("retry-after", 0) or 0
+                    ) or 2.0 ** attempt
+                    time.sleep(delay)
+            else:
+                raise RuntimeError("exhausted retries")
             usage = response.usage
             self.usage.input_tokens += usage.input_tokens
             self.usage.output_tokens += usage.output_tokens
