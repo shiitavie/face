@@ -37,6 +37,13 @@ from facecav.data.cfd import NORMING_WORKBOOK, build_manifest
 from facecav.models.claude_backend import ClaudeRater
 from facecav.models.scoring import classify_response
 
+#: CFD subjects are normal adults, so measured asymmetry tops out near 2% of
+#: face length -- ordinary human asymmetry, an order of magnitude below the
+#: gross deviation that clinical scales grade. Testing it here measures
+#: sub-clinical detection, not clinical capability, so it is excluded from the
+#: default set and must be requested explicitly.
+SUBCLINICAL = {"asymmetry"}
+
 #: label -> (CFD column, ordinal prompt, comparative phrase, clinical context)
 CONSTRUCTS = {
     "asymmetry": (
@@ -109,7 +116,12 @@ def main() -> None:
 
     matched = build_manifest(args.cfd_root)
     matched = matched[matched.join_status == "matched"]
-    selected = {k: CONSTRUCTS[k] for k in (args.constructs or CONSTRUCTS)}
+    requested = args.constructs or [k for k in CONSTRUCTS if k not in SUBCLINICAL]
+    selected = {k: CONSTRUCTS[k] for k in requested}
+    for name in selected:
+        if name in SUBCLINICAL:
+            print(f"  WARNING: '{name}' has a sub-clinical range in CFD; a null "
+                  f"result reflects the stimuli, not the model.\n")
 
     ordinal_calls = len(selected) * args.n_images * args.n_samples
     pair_calls = len(selected) * args.n_pairs * 2
@@ -175,25 +187,38 @@ def main() -> None:
         low = spread.head(args.n_pairs).reset_index(drop=True)
         high = spread.tail(args.n_pairs).reset_index(drop=True)
         question = f"Which of these two people {comparative}, the first or the second?"
-        correct, consistent = [], []
+        correct, consistent, slot1 = [], [], []
         for a, b in zip(low.itertuples(), high.itertuples()):
             result = rater.compare(str(a.image_path), str(b.image_path), question)
             consistent.append(result["consistent"])
+            # Rate at which the FIRST slot is chosen, irrespective of content.
+            # 0.5 means no position bias; consistency below 50% -- worse than
+            # random -- is the signature of a strong one, and makes accuracy on
+            # the consistent subset uninterpretable.
+            for choice in (result["choice_ab"], result["choice_ba"]):
+                if choice is not None:
+                    slot1.append(choice == "first")
             if result["consistent"]:
                 correct.append(result["prefers_b"])  # b always scores higher
 
+        separation = high[column].mean() / low[column].mean() if low[column].mean() else float("inf")
         rows.append({
             "construct": label,
             "clinical_context": context,
+            "stimulus_separation": separation,
             "ordinal_rho": rho_ordinal,
             "ordinal_distinct_values": distinct,
             "ordinal_mean": ordinal.rating.mean(),
+            "pair_slot1_rate": float(np.mean(slot1)) if slot1 else math.nan,
             "pair_consistency": float(np.mean(consistent)),
+            "pair_n_consistent": int(np.sum(consistent)),
             "pair_accuracy": float(np.mean(correct)) if correct else math.nan,
         })
-        print(f"    ordinal rho {rho_ordinal:+.3f} ({distinct} distinct values)   "
-              f"pairwise {np.mean(consistent):.0%} consistent, "
-              f"{np.mean(correct) if correct else float('nan'):.0%} accurate")
+        accuracy = np.mean(correct) if correct else float("nan")
+        print(f"    ordinal rho {rho_ordinal:+.3f} ({distinct} distinct values)")
+        print(f"    pairwise slot-1 {np.mean(slot1) if slot1 else float('nan'):.2f}  "
+              f"consistent {np.mean(consistent):.0%} (n={int(np.sum(consistent))})  "
+              f"accurate {accuracy:.0%}")
 
     results = pd.DataFrame(rows)
     results.to_csv(args.out_dir / "summary.csv", index=False)
