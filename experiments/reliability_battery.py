@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import time
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +65,13 @@ def main() -> None:
                         help="Samples generated per forward pass. Each one "
                              "re-encodes the image through the vision tower, "
                              "so this sets peak memory.")
+    parser.add_argument("--variants", nargs="+", default=None,
+                        choices=list(VARIANTS),
+                        help="Subset to run. The readout-validation question "
+                             "(reliability, agreement with logits) needs only "
+                             "'baseline'; the other variants cost 5x more and "
+                             "are only interpretable once the readout is known "
+                             "to work.")
     parser.add_argument("--compare-logits", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("artifacts/reliability.csv"))
@@ -86,8 +94,18 @@ def main() -> None:
     print(f"model: {args.model}   images: {len(sample)}   "
           f"samples/image: {args.n_samples}\n")
 
+    selected = {k: VARIANTS[k] for k in (args.variants or VARIANTS)}
+    total_calls = len(selected) * len(sample) * math.ceil(
+        args.n_samples / args.sample_batch_size
+    )
+    print(f"  {len(selected)} variant(s) x {len(sample)} images x "
+          f"{math.ceil(args.n_samples / args.sample_batch_size)} chunks "
+          f"= {total_calls} generate calls\n")
+
     records, per_image = [], {}
-    for variant, question in VARIANTS.items():
+    started = time.time()
+    done = 0
+    for variant, question in selected.items():
         print(f"  {variant}...")
         for row in sample.itertuples():
             ratings = rater.sample_ratings(
@@ -112,6 +130,13 @@ def main() -> None:
                 "unparseable_rate": np.mean([k["kind"] == "unparseable" for k in kinds]),
             })
 
+            done += 1
+            if done % 5 == 0 or done == len(selected) * len(sample):
+                rate = done / (time.time() - started)
+                left = (len(selected) * len(sample) - done) / rate / 60
+                print(f"    {done}/{len(selected) * len(sample)} images  "
+                      f"{rate * 60:.1f} img/min  eta {left:.0f} min")
+
     results = pd.DataFrame(records)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     results.to_csv(args.out, index=False)
@@ -124,6 +149,8 @@ def main() -> None:
     }
 
     def rho(a, b):
+        if a not in wide.columns or b not in wide.columns:
+            return math.nan, math.nan
         pair = wide[[a, b]].dropna()
         if len(pair) <= 2:
             return math.nan, math.nan
@@ -145,16 +172,21 @@ def main() -> None:
     observed, corrected = rho("7_is_best", "1_is_best")
     print(f"  rho('7 is best', '1 is best') = {observed:+.3f}   "
           f"corrected {corrected:+.3f}")
-    print(f"  means: {wide['7_is_best'].mean():.3f} vs {wide['1_is_best'].mean():.3f}")
+    if {"7_is_best", "1_is_best"} <= set(wide.columns):
+        print(f"  means: {wide['7_is_best'].mean():.3f} vs "
+              f"{wide['1_is_best'].mean():.3f}")
     print("  A model that reads the scale gives a strongly NEGATIVE correlation.")
     print("  Positive means the digits are being emitted regardless of meaning.")
 
     print("\n" + "=" * 70)
     print("TEST 2 -- DIGIT ANCHORING   (order reversed, meaning unchanged)")
     print("=" * 70)
-    shift = wide["reversed"].mean() - wide["baseline"].mean()
-    print(f"  baseline {wide['baseline'].mean():.3f} -> reversed "
-          f"{wide['reversed'].mean():.3f}   shift {shift:+.3f} scale points")
+    if {"baseline", "reversed"} <= set(wide.columns):
+        shift = wide["reversed"].mean() - wide["baseline"].mean()
+        print(f"  baseline {wide['baseline'].mean():.3f} -> reversed "
+              f"{wide['reversed'].mean():.3f}   shift {shift:+.3f} scale points")
+    else:
+        print("  (skipped -- needs both 'baseline' and 'reversed')")
 
     print("\n" + "=" * 70)
     print("TEST 3 -- PARAPHRASE ROBUSTNESS   (rank agreement is what matters)")
