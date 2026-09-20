@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: facecav
+Version: 0.1.0
+Summary: Ordinal Visual Concept Ranking for auditing MLLM facial attractiveness judgments
+Requires-Python: >=3.10
+Requires-Dist: transformers<5,>=4.51
+Requires-Dist: accelerate>=1.0
+Requires-Dist: qwen-vl-utils>=0.0.8
+Requires-Dist: pillow>=10.0
+Requires-Dist: pandas>=2.0
+Requires-Dist: numpy>=1.26
+Requires-Dist: scipy>=1.11
+Requires-Dist: openpyxl>=3.1
+Requires-Dist: pyarrow>=15.0
+Requires-Dist: anthropic>=0.97
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Provides-Extra: local
+Requires-Dist: torch>=2.4; extra == "local"
+Provides-Extra: docs
+Requires-Dist: python-docx>=1.1; extra == "docs"
