@@ -12,7 +12,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 
 NAVY = RGBColor(0x1F, 0x36, 0x4D)
-OUT = "docs/manuscripts/Cautionary_Paper_Methods_Summary.docx"
+OUT = "docs/manuscripts/MLLM_Facial_Rating_Validation_Summary.docx"
 
 doc = Document()
 for section in doc.sections:
@@ -62,80 +62,108 @@ def table(rows, widths):
 
 title = doc.add_paragraph()
 title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = title.add_run("Are Prompted Multimodal Model Aesthetic Ratings a Measurement?")
+run = title.add_run("Validating Multimodal Models as Raters of Facial Aesthetics")
 run.bold = True
 run.font.size = Pt(16)
 run.font.color.rgb = NAVY
 
 sub = doc.add_paragraph()
 sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = sub.add_run("A reliability audit of Likert-scale facial ratings, with implications "
-                  "for aesthetic outcome assessment")
+run = sub.add_run("Reliability, validity, and demographic fairness of prompted "
+                  "attractiveness ratings")
 run.italic = True
 run.font.size = Pt(12)
 
 meta = doc.add_paragraph()
 meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
-run = meta.add_run("Methods summary · working draft · 20 September 2026")
+run = meta.add_run("Preliminary results · working draft · 25 September 2026")
 run.font.size = Pt(9.5)
 run.font.color.rgb = RGBColor(0x60, 0x60, 0x60)
 
 heading("1. The question")
 para("Multimodal large language models are increasingly used to score facial photographs "
-     "on Likert scales by prompting alone — no model training, no calibration. Reports "
-     "already quote figures of the form “the model rated our post-operative results "
-     "8.2/10.”")
-para("Such use assumes the number behaves as a measurement: that it reflects the image, "
-     "that it responds to the scale as defined, and that repeating the query returns "
-     "approximately the same value. To our knowledge none of these assumptions has been "
-     "tested.")
-para("We treat the rating as an instrument rather than as data, and subject it to the "
-     "validation any instrument requires before clinical use.", bold=True)
+     "on Likert scales by prompting alone — no model training, no calibration. Before such "
+     "a score can inform clinical judgement, three things must be true: it must repeat, it "
+     "must respond to the scale as defined, and it must agree with human judgement. A "
+     "fourth follows immediately in a surgical context — it must do so equally for every "
+     "patient group.")
+para("We treat the rating as an instrument and validate it accordingly. The finding is not "
+     "that these models fail, but that they differ enormously: one of the two tested is "
+     "unusable, and the other performs at the level of human rater agreement.", bold=True)
 
 heading("2. Relationship to existing work in aesthetic surgery", 2)
 para("AI-derived aesthetic scoring has already entered the surgical outcomes literature. "
-     "Rames et al. applied trained ensemble models for perceived age and perceived "
-     "attractiveness to 676 patients from the ASPS Before and After gallery, deriving a "
-     "composite aesthetic benefit score and using it to compare procedures and identify "
-     "patient factors associated with greater benefit (Plast Reconstr Surg, "
-     "doi:10.1097/PRS.0000000000013412). That work establishes both the clinical appetite "
-     "for objective aesthetic outcome measurement and the feasibility of applying computer "
-     "vision at scale to surgical photographs.")
-para("Our scope is complementary. Rames et al. use purpose-trained supervised ensembles, "
-     "fit to human ratings and validated against them. We examine general-purpose models "
-     "prompted to produce ratings directly — the tool a clinician reaches for without "
-     "training anything. These are different instruments with different failure modes: a "
-     "supervised regressor is calibrated to its training distribution by construction, "
-     "whereas a prompted model's output depends on how the question is worded.")
-para("This study asks what validation a prompted model requires before it is used the way "
-     "trained models are now being used. Nothing here bears on the validity of "
-     "purpose-trained models.", bold=True)
+     "Rames et al. applied trained ensemble models for perceived age and attractiveness to "
+     "676 patients from the ASPS Before and After gallery (Plast Reconstr Surg, "
+     "doi:10.1097/PRS.0000000000013412). Varghaei et al. built a landmark-geometric "
+     "pipeline over 7,160 photographs from 1,259 patients (arXiv:2508.13363), reporting "
+     "nasal ratios — including alar width to intercanthal distance — as outcome measures.")
+para("Those are purpose-built instruments: a supervised regressor is calibrated to its "
+     "training distribution by construction, and a geometric pipeline measures what it is "
+     "told to measure. We examine general-purpose models prompted to produce ratings "
+     "directly — the tool a clinician reaches for without training anything. Our scope is "
+     "complementary, and nothing here bears on the validity of purpose-built models.")
+para("Notably, neither prior work could assess demographic fairness: Varghaei et al. state "
+     "explicitly that their dataset carries no subject-level demographic annotations. The "
+     "Chicago Face Database does, which is what makes the present analysis possible.")
 
 heading("3. Preliminary findings")
-para("Two models so far — one open-weight (Qwen2.5-VL-7B) and one commercial "
-     "(Claude Opus 5) — on the Chicago Face Database. They fail in opposite ways.",
-     italic=True)
+para("Two models on the Chicago Face Database: one open-weight (Qwen2.5-VL-7B) and one "
+     "commercial (Claude Opus 5). Fairness figures are from 276 of 826 faces; the "
+     "remainder are pending.", italic=True)
+
+heading("3.1 The two models are not comparable instruments", 2)
 table([
-    ("Test", "Qwen2.5-VL-7B", "Claude Opus 5"),
-    ("Scale direction — flipping which end means “most attractive”, digits unchanged",
-     "ρ = +0.98 (should be strongly negative)", "pending"),
-    ("Digit anchoring — reversing digit order, meaning unchanged",
-     "mean shifts 2.2 points on a 7-point scale; ratings become uncorrelated with the "
-     "photograph (ρ = 0.00)", "pending"),
-    ("Repeatability at a fixed prompt",
-     "SE ≈ 0.44 per image, larger than the true spread between faces (SD 0.27)",
-     "near-deterministic (SD 0.02)"),
-    ("Scale use",
-     "uses the full range", "75% of all ratings are the midpoint; only 3 of 7 points "
-     "ever used"),
-    ("Presentation order in paired comparison",
-     "chooses the second image in ~99% of trials", "position bias present; under "
-     "measurement"),
-], [1.7, 2.3, 2.3])
-para("Qwen is imprecise and driven by the surface form of the question. Claude is "
-     "perfectly repeatable but barely discriminates. Both are unusable as measurements, "
-     "for opposite reasons — which is why validating the specific model and prompt in "
-     "use is not optional.", bold=True)
+    ("", "Qwen2.5-VL-7B", "Claude Opus 5"),
+    ("Repeats on re-query?",
+     "No — SE ≈ 0.44 per face, larger than the true spread between faces (SD 0.27)",
+     "Yes — SD 0.02, effectively deterministic"),
+    ("Responds to the scale's meaning?",
+     "No — flipping which end means “most attractive” leaves ratings almost unchanged "
+     "(ρ = +0.98)", "Yes"),
+    ("Sensitive to irrelevant wording?",
+     "Severely — reversing digit order moves the mean 2.2 points and decorrelates ratings "
+     "from the photograph entirely (ρ = 0.00)", "No"),
+    ("Agrees with human raters?",
+     "Not assessed — the instrument fails first",
+     "ρ = +0.57 to +0.63 within demographic cells"),
+], [1.55, 2.4, 2.35])
+para("An investigator using the open-weight model would obtain confident numbers driven by "
+     "the wording of the question rather than by the photograph, with no indication from "
+     "the output that anything was wrong. This is why the validation step is not optional.",
+     bold=True)
+
+heading("3.2 The commercial model performs at human level", 2)
+para("Agreement with CFD's human attractiveness norms, computed within race × gender cells "
+     "because CFD's principal item asks raters to judge each face relative to others of "
+     "the same race and gender:")
+table([
+    ("Group", "n", "Agreement with human norms (95% CI)"),
+    ("Black", "55", "+0.63  [+0.44, +0.77]"),
+    ("White", "48", "+0.62  [+0.37, +0.79]"),
+    ("Multiracial", "19", "+0.62  [+0.19, +0.88]"),
+    ("Asian", "97", "+0.60  [+0.46, +0.71]"),
+    ("Indian", "35", "+0.44  [+0.12, +0.68]"),
+    ("Latino", "22", "+0.28  [−0.19, +0.68]"),
+], [1.5, 0.7, 4.1])
+para("For reference, two human rater pools (US and Indian) agree with each other at ρ = "
+     "0.585 on the same construct. The model's agreement with human raters is of the same "
+     "order as human agreement with one another.")
+
+heading("3.3 No demographic bias detected — with the power caveat", 2)
+bullet("Differential validity: all six confidence intervals overlap. There is no evidence "
+       "the model tracks human judgement better for one race group than another. The two "
+       "lowest estimates are also the two smallest groups (n = 22 and 19), so this is a "
+       "null with limited power rather than a demonstration of fairness.")
+bullet("Colorism: with race and gender held fixed, lighter skin is associated with higher "
+       "ratings at ρ = +0.10 for the model and ρ = +0.12 for human raters on the identical "
+       "test. The model does not amplify the human effect.")
+bullet("Scale use: rating diversity ranges 0.38–0.59 across groups — no group is collapsed "
+       "to a single value, so all remain internally rankable.")
+bullet("Absolute mean ratings differ across groups by up to 0.6 scale points, but CFD "
+       "supplies no absolute human baseline for the main set. That difference cannot be "
+       "attributed to the model rather than to the faces or the photographs, and is not "
+       "reported as bias.")
 
 heading("4. Methods in brief")
 bullet("Chicago Face Database, neutral expression, 831 photographs. Standardized "
@@ -157,18 +185,20 @@ bullet("Where absolute rating fails, counterbalanced forced-choice comparison is
        "Improvement Scale asks for.")
 
 heading("5. What remains")
-bullet("Additional models, including further commercial systems, before any claim about "
+bullet("Completing the fairness run: 550 of 826 faces remain, roughly $4 of API credit.")
+bullet("Additional models, including a second commercial system, before any claim about "
        "multimodal models as a class.")
-bullet("Whether these failures persist at frontier scale — the first question a reviewer "
-       "will ask.")
-bullet("A scale-format arm: verbally anchored and categorical scales, to test whether the "
-       "formats used by validated clinical instruments avoid the failures seen with bare "
-       "numeric scales.")
+bullet("A scale-format arm: verbally anchored and categorical scales of the kind validated "
+       "clinical instruments use, to test whether those formats avoid the failures seen "
+       "with bare numeric scales.")
+bullet("Replication on surgical photographs, which requires IRB and institutional data.")
 
 heading("6. Positioning")
-para("The contribution is a validation protocol and a caution, not a benchmark. The paper "
-     "reports what fails, why the failure is invisible in ordinary use, and a "
-     "counterbalanced comparison procedure that works where direct rating does not.")
+para("The contribution is a validation protocol, a demonstration that models differ "
+     "enough for it to matter, and the first demographic fairness audit of a prompted "
+     "multimodal model on standardized facial photographs. The message to clinicians is "
+     "not that these tools cannot be used, but that the specific model and prompt must be "
+     "validated before they are.")
 para("Candidate venues: Aesthetic Surgery Journal; Facial Plastic Surgery & Aesthetic "
      "Medicine; Plastic and Reconstructive Surgery – Global Open. No patient data and no "
      "IRB requirement; all stimuli are from a public de-identified research database. "
