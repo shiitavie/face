@@ -78,8 +78,22 @@ def main() -> None:
     manifest = manifest[manifest.join_status == "matched"]
 
     data = ratings.merge(
-        manifest[["model_id", "attractive_rel", "AgeRated", "LuminanceMedian"]],
+        manifest[["model_id", "attractive_rel", "attractive_abs_us",
+                  "AgeRated", "LuminanceMedian"]],
         on="model_id", how="left",
+    )
+    # CFD-INDIA is normed on R013B (absolute), the other subsets on R013
+    # (within race and gender). Keying only on attractive_rel silently drops
+    # every Indian face. Both are valid human norms for a WITHIN-cell
+    # correlation, which is all this analysis uses them for; they are not
+    # pooled for any between-group comparison.
+    data["human_norm"] = data.attractive_rel.fillna(data.attractive_abs_us)
+    data["norm_item"] = np.where(
+        data.attractive_rel.notna(), "R013", 
+        np.where(data.attractive_abs_us.notna(), "R013B", None),
+    )
+    manifest = manifest.assign(
+        human_norm=manifest.attractive_rel.fillna(manifest.attractive_abs_us)
     )
     print(f"n = {len(data)} faces   "
           f"{data.groupby(CELL).ngroups} race x gender cells\n")
@@ -90,13 +104,14 @@ def main() -> None:
     print("   equally well for every group?  (within-cell, the comparison")
     print("   R013's within-group norming actually supports)")
     print("=" * 78)
-    print(f"{'race':<13} {'n':>4} {'rho vs human':>13} {'95% CI':>18} {'p':>9}")
-    print("-" * 60)
+    print(f"{'race':<13} {'n':>4} {'item':>6} {'rho vs human':>13} "
+          f"{'95% CI':>18} {'p':>9}")
+    print("-" * 68)
 
     per_race = {}
-    for race, block in data.dropna(subset=["attractive_rel"]).groupby("race_code"):
+    for race, block in data.dropna(subset=["human_norm"]).groupby("race_code"):
         centered = block.copy()
-        for column in ("rating", "attractive_rel"):
+        for column in ("rating", "human_norm"):
             centered[column] = (
                 centered[column]
                 - centered.groupby("gender_code")[column].transform("mean")
@@ -105,10 +120,11 @@ def main() -> None:
             print(f"{RACE_NAMES.get(race, race):<13} {len(block):>4}   "
                   f"insufficient variation")
             continue
-        result = stats.spearmanr(centered.rating, centered.attractive_rel)
-        low, high = bootstrap_rho(centered.rating, centered.attractive_rel)
+        result = stats.spearmanr(centered.rating, centered.human_norm)
+        low, high = bootstrap_rho(centered.rating, centered.human_norm)
         per_race[race] = (result.statistic, low, high, len(centered))
-        print(f"{RACE_NAMES.get(race, race):<13} {len(centered):>4} "
+        item = block.norm_item.mode().iat[0] if block.norm_item.notna().any() else "?"
+        print(f"{RACE_NAMES.get(race, race):<13} {len(centered):>4} {item:>6} "
               f"{result.statistic:>+13.3f} {f'[{low:+.2f}, {high:+.2f}]':>18} "
               f"{result.pvalue:>9.4f}")
 
@@ -127,12 +143,20 @@ def main() -> None:
     print("2. DIFFERENTIAL RESOLUTION -- how much of the scale is used per group?")
     print("=" * 78)
     resolution = data.groupby("race_code").rating.agg(
-        n="size", distinct="nunique", sd="std", lo="min", hi="max"
+        n="size", distinct="nunique", sd="std"
+    )
+    # Distinct-value count grows with sample size, so the raw count makes small
+    # groups look coarse purely for being small. Gini-Simpson diversity of the
+    # rating distribution is sample-size stable and is the comparable measure.
+    resolution["diversity"] = data.groupby("race_code").rating.apply(
+        lambda s: 1 - ((s.value_counts() / len(s)) ** 2).sum()
     )
     resolution.index = [RACE_NAMES.get(r, r) for r in resolution.index]
     print(resolution.round(3).to_string())
-    print("\n  A group with few distinct values cannot be ranked internally,")
-    print("  regardless of its mean -- a resolution failure, not a level one.")
+    print("\n  'distinct' scales with n and is not comparable across groups of")
+    print("  different size; read 'sd' and 'diversity' instead. Diversity is the")
+    print("  probability two randomly chosen faces in the group get different")
+    print("  ratings -- 0 means the group cannot be ranked internally at all.")
 
     # ------------------------------------------------------------------
     print("\n" + "=" * 78)
@@ -149,12 +173,12 @@ def main() -> None:
           f"[{low:+.2f}, {high:+.2f}]  p {overall.pvalue:.4f}  n {len(tone)}")
 
     # The same question for human raters, as the control.
-    human = manifest.dropna(subset=["attractive_rel", "LuminanceMedian"]).copy()
-    for column in ("attractive_rel", "LuminanceMedian"):
+    human = manifest.dropna(subset=["human_norm", "LuminanceMedian"]).copy()
+    for column in ("human_norm", "LuminanceMedian"):
         human[f"{column}_c"] = (
             human[column] - human.groupby(CELL)[column].transform("mean")
         )
-    human_result = stats.spearmanr(human.attractive_rel_c, human.LuminanceMedian_c)
+    human_result = stats.spearmanr(human.human_norm_c, human.LuminanceMedian_c)
     print(f"  human norms, same test   rho {human_result.statistic:+.3f}  "
           f"p {human_result.pvalue:.4f}  n {len(human)}")
     print("\n  Positive means lighter skin rated more attractive with race and")
