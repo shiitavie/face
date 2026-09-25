@@ -37,6 +37,7 @@ def main() -> None:
     parser.add_argument("--n-samples", type=int, default=3)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--concurrency", type=int, default=3)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
@@ -55,7 +56,12 @@ def main() -> None:
     if out.exists():
         done = {json.loads(line)["model_id"] for line in out.open()}
 
+    # Shuffle so a partial run is still demographically balanced. In manifest
+    # order the cells fill sequentially -- an interrupted run would have rated
+    # every Asian face and no White ones, which supports no group comparison.
     todo = [row for row in faces.itertuples() if row.model_id not in done]
+    rng = np.random.default_rng(args.seed)
+    todo = [todo[i] for i in rng.permutation(len(todo))]
     tokens = 936
     estimate = (len(todo) * tokens * 1.25
                 + len(todo) * (args.n_samples - 1) * tokens * 0.1) \
