@@ -139,11 +139,12 @@ class ClaudeRater:
         if self._using_oauth:
             self.client = self._build_client()
 
-    def _message(self, image_b64: str, media_type: str, question: str):
+    def _message(self, image_b64: str, media_type: str, question: str,
+                 system: str | None = None):
         return self.client.messages.create(
             model=self.model,
             max_tokens=8,
-            system=SYSTEM_INSTRUCTION,
+            system=system or SYSTEM_INSTRUCTION,
             messages=[{
                 "role": "user",
                 "content": [
@@ -169,6 +170,7 @@ class ClaudeRater:
         question: str,
         n_samples: int = 16,
         concurrency: int = 4,
+        system: str | None = None,
     ) -> list[dict]:
         """Sample ``n_samples`` responses, classified as answer/hedged/refusal."""
         image_b64, media_type = encode_image(image_path, self.max_dimension)
@@ -177,7 +179,7 @@ class ClaudeRater:
             attempts = 8
             for attempt in range(attempts):
                 try:
-                    response = self._message(image_b64, media_type, question)
+                    response = self._message(image_b64, media_type, question, system)
                     break
                 except self._anthropic.AuthenticationError:
                     # OAuth access tokens expire mid-run; refresh and retry.

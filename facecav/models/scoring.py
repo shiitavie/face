@@ -173,3 +173,50 @@ def classify_response(text: str, scale_max: int = 7, scale_min: int = 1) -> dict
         "rating": rating,
         "text": text,
     }
+
+
+# --- age estimation ---
+
+MIN_AGE, MAX_AGE = 1.0, 120.0
+
+#: A range this wide is a refusal wearing a number, not an estimate.
+_MAX_PLAUSIBLE_RANGE = 40.0
+
+_RANGE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:-|–|—|\bto\b|\band\b)\s*(\d+(?:\.\d+)?)"
+)
+
+
+def parse_age(text: str) -> float:
+    """Age in years from free text, or NaN.
+
+    Unlike a Likert response, an age estimate is open-ended and frequently
+    given as a range. Ranges become their midpoint: taking the lower bound
+    would bias every ranged answer downward.
+    """
+    if not text or not text.strip():
+        return math.nan
+    if any(marker in text.lower() for marker in _REFUSAL_MARKERS):
+        return math.nan
+
+    def plausible(value: float) -> bool:
+        return MIN_AGE <= value <= MAX_AGE
+
+    # A range too wide to be an estimate is usually scale scaffolding ("on a
+    # scale of 1 to 100, I would say 35"), so skip past it and read what
+    # follows. If nothing follows, the range was the whole answer and says
+    # nothing usable.
+    scan_from = 0
+    match = _RANGE.search(text)
+    if match:
+        low, high = float(match.group(1)), float(match.group(2))
+        if plausible(low) and plausible(high) and low <= high:
+            if high - low <= _MAX_PLAUSIBLE_RANGE:
+                return (low + high) / 2.0
+            scan_from = match.end()
+
+    for candidate in _NUMBER.finditer(text, scan_from):
+        value = float(candidate.group())
+        if plausible(value):
+            return value
+    return math.nan
