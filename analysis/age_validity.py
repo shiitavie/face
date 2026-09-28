@@ -107,6 +107,47 @@ def main() -> None:
         print("  faces -- shared perceptual signal rather than independent noise.")
 
     # ------------------------------------------------------------------
+    # The faces carrying actual age are CFD-INDIA and CFD-MR, so "the model
+    # beats the panel" invites the objection that US raters are simply worse at
+    # estimating age on non-White faces. CFD-I is normed twice -- by US and by
+    # Indian raters -- which tests that directly.
+    india_sheet = "CFD-I INDIA Norming Data"
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sheet = pd.read_excel(
+                args.cfd_root / NORMING_WORKBOOK, sheet_name=india_sheet, header=None
+            )
+        labels = [str(x) for x in sheet.iloc[7]]
+        body = sheet.iloc[9:].reset_index(drop=True)
+        india = pd.DataFrame({
+            "model_id": body.iloc[:, 0].astype(str),
+            "AgeRated_india": pd.to_numeric(
+                body.iloc[:, labels.index("AgeRated")], errors="coerce"),
+        })
+        cross = truth.merge(india, on="model_id", how="inner").dropna(
+            subset=["AgeRated_india"]
+        )
+    except Exception:
+        cross = pd.DataFrame()
+
+    if len(cross) > 20:
+        print("\n" + "=" * 76)
+        print("1b. CROSS-RACE CONTROL -- Indian faces rated by both human pools")
+        print("=" * 76)
+        for label, estimate in [("Claude", cross.age_estimate),
+                                ("US rater panel", cross.AgeRated),
+                                ("India rater panel", cross.AgeRated_india)]:
+            error = estimate - cross.AgeSelf
+            print(f"  {label:<20} MAE {error.abs().mean():5.2f}   "
+                  f"bias {error.mean():+6.2f}   "
+                  f"r {stats.pearsonr(estimate, cross.AgeSelf).statistic:.3f}")
+        print(f"\n  n = {len(cross)}")
+        print("  If the two human pools perform alike, the model's advantage is")
+        print("  not an artifact of cross-race age estimation in the comparator.")
+
+    # ------------------------------------------------------------------
     print("\n" + "=" * 76)
     print("2. AGAINST HUMAN PERCEIVED AGE -- all faces")
     print("=" * 76)
