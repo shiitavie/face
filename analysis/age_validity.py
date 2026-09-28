@@ -162,31 +162,46 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     print("\n" + "=" * 76)
-    print("3. DOES THE ERROR DIFFER BY GROUP?  (vs human perceived age)")
+    print("3. DEPARTURE FROM HUMAN PERCEPTION BY GROUP")
+    print("   (this is NOT a bias measure -- see the decomposition below)")
     print("=" * 76)
-    print(f"{'group':<13} {'n':>4} {'MAE':>7} {'bias':>8} {'bias 95% CI':>20}")
-    print("-" * 56)
+    print(f"{'group':<13} {'n':>4} {'MAE':>7} {'C-human':>9} {'95% CI':>20} {'truth?':>8}")
+    print("-" * 64)
     perceived = perceived.assign(error=perceived.age_estimate - perceived.AgeRated)
-    by_race = {}
     for race, block in perceived.groupby("race_code"):
         lo, hi = bootstrap_ci(block.error)
-        by_race[race] = (block.error.mean(), lo, hi, len(block))
+        with_truth = truth[truth.race_code == race] if len(truth) else block.iloc[:0]
         print(f"{RACE_NAMES.get(race, race):<13} {len(block):>4} "
-              f"{block.error.abs().mean():>7.2f} {block.error.mean():>+8.2f} "
-              f"{f'[{lo:+.2f}, {hi:+.2f}]':>20}")
+              f"{block.error.abs().mean():>7.2f} {block.error.mean():>+9.2f} "
+              f"{f'[{lo:+.2f}, {hi:+.2f}]':>20} "
+              f"{('n=' + str(len(with_truth))) if len(with_truth) else 'none':>8}")
 
-    if len(by_race) >= 2:
-        high = max(by_race.items(), key=lambda kv: kv[1][0])
-        low = min(by_race.items(), key=lambda kv: kv[1][0])
-        overlap = not (high[1][1] > low[1][2] or low[1][1] > high[1][2])
-        print(f"\n  widest gap: {RACE_NAMES.get(high[0])} {high[1][0]:+.2f} vs "
-              f"{RACE_NAMES.get(low[0])} {low[1][0]:+.2f} "
-              f"= {high[1][0] - low[1][0]:.2f} years")
-        print(f"  intervals {'OVERLAP' if overlap else 'DO NOT overlap'} -- "
-              f"{'no evidence of' if overlap else 'evidence of'} differential bias")
-        print("\n  A group-dependent age bias matters clinically: change in")
-        print("  perceived age is a reported surgical outcome, so a systematic")
-        print("  per-group offset would bias outcome measurement itself.")
+    print("\n  A group difference in this column CANNOT be read as model bias.")
+    print("  The column is model minus human panel, so a difference may come")
+    print("  from either party, and CFD supplies actual age for only two of the")
+    print("  six groups.")
+
+    if len(truth) > 20:
+        print("\n" + "=" * 76)
+        print("3b. DECOMPOSITION where actual age exists -- who is actually off?")
+        print("=" * 76)
+        print(f"{'group':<13} {'n':>4} {'Claude vs truth':>16} {'human vs truth':>15} "
+              f"{'C-human':>9}")
+        print("-" * 60)
+        for race, block in truth.groupby("race_code"):
+            model_bias = (block.age_estimate - block.AgeSelf).mean()
+            human_bias = (block.AgeRated - block.AgeSelf).mean()
+            print(f"{RACE_NAMES.get(race, race):<13} {len(block):>4} "
+                  f"{model_bias:>+16.2f} {human_bias:>+15.2f} "
+                  f"{model_bias - human_bias:>+9.2f}")
+        print("\n  Both raters overestimate age, so the model estimating younger")
+        print("  than the panel moves TOWARD truth. Where truth is available the")
+        print("  model is the more accurate of the two, and the apparent")
+        print("  'differential bias' above is largely the human panel's error")
+        print("  varying by group.")
+        print("\n  CONCLUSION: CFD cannot answer whether the MODEL's age error")
+        print("  differs by race. Doing so needs actual age across all groups --")
+        print("  e.g. UTKFace, at the cost of standardized capture.")
 
     print("\n" + "=" * 76)
     print("4. BY GROUP AND GENDER")
