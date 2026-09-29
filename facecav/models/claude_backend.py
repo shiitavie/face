@@ -140,10 +140,10 @@ class ClaudeRater:
             self.client = self._build_client()
 
     def _message(self, image_b64: str, media_type: str, question: str,
-                 system: str | None = None):
+                 system: str | None = None, max_tokens: int = 8):
         return self.client.messages.create(
             model=self.model,
-            max_tokens=8,
+            max_tokens=max_tokens,
             system=system or SYSTEM_INSTRUCTION,
             messages=[{
                 "role": "user",
@@ -171,6 +171,7 @@ class ClaudeRater:
         n_samples: int = 16,
         concurrency: int = 4,
         system: str | None = None,
+        max_tokens: int = 8,
     ) -> list[dict]:
         """Sample ``n_samples`` responses, classified as answer/hedged/refusal."""
         image_b64, media_type = encode_image(image_path, self.max_dimension)
@@ -179,7 +180,7 @@ class ClaudeRater:
             attempts = 8
             for attempt in range(attempts):
                 try:
-                    response = self._message(image_b64, media_type, question, system)
+                    response = self._message(image_b64, media_type, question, system, max_tokens)
                     break
                 except self._anthropic.AuthenticationError:
                     # OAuth access tokens expire mid-run; refresh and retry.
@@ -235,7 +236,7 @@ class ClaudeRater:
         content.append({"type": "text", "text": question})
         return self.client.messages.create(
             model=self.model,
-            max_tokens=8,
+            max_tokens=max_tokens,
             system=(
                 "You are participating in a perception study. Answer with exactly "
                 "one word, either 'first' or 'second'. No explanation."

@@ -39,6 +39,12 @@ class Task:
     system: str
     minimum: float
     maximum: float
+    #: Claude reasons before answering harder questions, and that reasoning
+    #: consumes the token budget. A task needing derivation returns an EMPTY
+    #: string at a small budget -- stop_reason is "max_tokens", but nothing
+    #: errors and the response is simply recorded as unparseable. Measured:
+    #: the mm-measurement task uses ~166 output tokens.
+    max_tokens: int = 8
 
 
 TASKS = {
@@ -92,7 +98,7 @@ TASKS = {
         "the centre of the other) is 63 mm. Using that as your scale "
         "reference, how wide is their nose at its widest point, in "
         "millimetres?",
-        BARE_NUMBER, 10, 70,
+        BARE_NUMBER, 10, 70, max_tokens=512,
     ),
 }
 
@@ -179,6 +185,7 @@ def main() -> None:
             responses = rater.sample_ratings(
                 str(row.image_path), task.question, n_samples=args.n_samples,
                 concurrency=args.concurrency, system=task.system,
+                max_tokens=task.max_tokens,
             )
             scores = [
                 parse_numeric_response(r["text"], task.minimum, task.maximum)
