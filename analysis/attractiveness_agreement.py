@@ -105,6 +105,51 @@ def main() -> None:
               f"{f'[{lo:+.2f}, {hi:+.2f}]':>18} "
               f"{usable.score.nunique():>9} {counts.max():>6.0%}")
 
+    # The only fully matched comparison CFD allows: CFD-I faces are rated by
+    # two human panels on the same absolute item, so model-vs-panel and
+    # panel-vs-panel can be put on identical footing.
+    india = manifest[manifest.subset == "CFD-INDIA"][
+        ["model_id", "attractive_abs_us", "attractive_abs_india", "gender_code"]
+    ]
+    primary = load(args.scores[0])[["model_id", "score"]]
+    matched = india.merge(primary, on="model_id").dropna().reset_index(drop=True)
+
+    if len(matched) > 40:
+        for column in ("score", "attractive_abs_us", "attractive_abs_india"):
+            matched[f"{column}_c"] = (
+                matched[column]
+                - matched.groupby("gender_code")[column].transform("mean")
+            )
+        print("\n" + "=" * 78)
+        print("MATCHED THREE-RATER COMPARISON (CFD-I, absolute item, same faces)")
+        print("=" * 78)
+        pairs = [
+            ("Claude", "US panel", "score_c", "attractive_abs_us_c"),
+            ("Claude", "India panel", "score_c", "attractive_abs_india_c"),
+            ("US panel", "India panel", "attractive_abs_us_c", "attractive_abs_india_c"),
+        ]
+        for first, second, left, right in pairs:
+            rho = stats.spearmanr(matched[left], matched[right]).statistic
+            print(f"  {first:<10} vs {second:<12}  rho {rho:+.3f}")
+
+        rng = np.random.default_rng(0)
+        differences = []
+        for _ in range(4000):
+            draw = matched.iloc[rng.integers(0, len(matched), len(matched))]
+            human = stats.spearmanr(
+                draw.attractive_abs_us_c, draw.attractive_abs_india_c
+            ).statistic
+            model = stats.spearmanr(draw.score_c, draw.attractive_abs_us_c).statistic
+            differences.append(model - human)
+        low, high = np.percentile(differences, [2.5, 97.5])
+        print(f"\n  Claude-US minus US-India: {np.mean(differences):+.3f} "
+              f"[{low:+.3f}, {high:+.3f}]  n={len(matched)}")
+        if low > 0:
+            print("  The model out-agrees the human panels.")
+        else:
+            print("  Not distinguishable: the model agrees with human raters at")
+            print("  about the level the two human panels agree with each other.")
+
     print(f"\n  Reference: two human rater pools agree with each other at "
           f"{HUMAN_REFERENCE:.3f}")
     print("  on CFD-I's absolute item. That is the scale of agreement to judge")
