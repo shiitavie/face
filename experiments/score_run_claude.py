@@ -54,6 +54,58 @@ TASKS = {
         "How old is this person? Give your best estimate of their age in years.",
         BARE_NUMBER, 1, 120,
     ),
+
+    # --- objective measurands, each with a CFD ground truth ---
+
+    "skin_tone": Task(
+        "On a scale of 1 to 100, how light is this person's skin, where 1 is "
+        "the darkest and 100 the lightest?",
+        BARE_NUMBER, 1, 100,
+    ),
+    # Ratio form: scale-free, so no calibration reference is needed.
+    "lip_thickness_pct": Task(
+        "What percentage of this face's total height (hairline to chin) is "
+        "taken up by the thickness of the lips? Answer as a percentage.",
+        BARE_NUMBER, 0.5, 40,
+    ),
+    "nose_width_pct": Task(
+        "What percentage of this face's total width is taken up by the width "
+        "of the nose at its widest point? Answer as a percentage.",
+        BARE_NUMBER, 5, 80,
+    ),
+    "cheekbone_prominence_pct": Task(
+        "How much wider is this face at the cheekbones than at the mouth, "
+        "as a percentage of the face's total height? Answer as a percentage.",
+        BARE_NUMBER, 0.0, 40,
+    ),
+    "eyebrow_thickness_pct": Task(
+        "What percentage of this face's total height is taken up by the "
+        "thickness of an eyebrow? Answer as a percentage.",
+        BARE_NUMBER, 0.2, 25,
+    ),
+
+    # Direct measurement, anchored on an anthropometric constant. This is the
+    # form a surgeon actually uses, and tests whether the model can measure
+    # rather than merely rank.
+    "nose_width_mm": Task(
+        "Assume this person's interpupillary distance (centre of one pupil to "
+        "the centre of the other) is 63 mm. Using that as your scale "
+        "reference, how wide is their nose at its widest point, in "
+        "millimetres?",
+        BARE_NUMBER, 10, 70,
+    ),
+}
+
+#: task -> how to compute its ground truth from CFD columns. Spearman is
+#: scale-invariant so ranking works regardless of units, but calibration
+#: (is the VALUE right?) needs the truth in the units the question asked for.
+GROUND_TRUTH = {
+    "skin_tone": ("LuminanceMedian", None),
+    "lip_thickness_pct": ("LipThickness", "FaceLength"),
+    "nose_width_pct": ("NoseWidth", "FaceWidthBZ"),
+    "cheekbone_prominence_pct": ("CheekboneProminence", None),
+    "eyebrow_thickness_pct": ("EyeBrowThicknessAvg", "FaceLength"),
+    "nose_width_mm": ("NoseWidth", "EyeDistance"),
 }
 
 PRICES = {"claude-opus-5": (5.0, 25.0), "claude-sonnet-5": (2.0, 10.0),
@@ -79,6 +131,17 @@ def main() -> None:
     task = TASKS[args.task]
     manifest = build_manifest(args.cfd_root)
     faces = manifest[manifest.join_status == "matched"]
+
+    # Rate only faces whose ground truth exists. eyebrow_thickness_pct and
+    # nose_width_mm depend on columns CFD records for 229 faces, so without
+    # this the run would pay for 600 unusable ratings.
+    required = [c for c in GROUND_TRUTH.get(args.task, ((), ()))[:2] if c]
+    missing = [c for c in required if c not in faces.columns]
+    if missing:
+        raise SystemExit(f"manifest lacks ground-truth column(s): {missing}")
+    if required:
+        faces = faces.dropna(subset=required)
+
     if args.limit:
         faces = faces.head(args.limit)
 
