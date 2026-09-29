@@ -187,31 +187,41 @@ _RANGE = re.compile(
 )
 
 
-def parse_age(text: str) -> float:
-    """Age in years from free text, or NaN.
+def parse_numeric_response(
+    text: str,
+    minimum: float,
+    maximum: float,
+    max_range: float | None = None,
+) -> float:
+    """First plausible number in ``text``, or NaN.
 
-    Unlike a Likert response, an age estimate is open-ended and frequently
-    given as a range. Ranges become their midpoint: taking the lower bound
-    would bias every ranged answer downward.
+    Written for open-ended numeric answers, where two things go wrong that do
+    not arise with a single-token Likert readout:
+
+    * **Ranges.** "70-80" must become its midpoint; taking the lower bound
+      would bias every ranged answer downward.
+    * **Scale scaffolding.** "On a scale of 1 to 100, I'd say 72" restates the
+      question before answering it. A range too wide to be an estimate is
+      therefore skipped, and the scan resumes after it -- so the scaffolded
+      form reads as 72, while a bare "somewhere between 1 and 100" reads as
+      nothing.
     """
     if not text or not text.strip():
         return math.nan
     if any(marker in text.lower() for marker in _REFUSAL_MARKERS):
         return math.nan
+    if max_range is None:
+        max_range = (maximum - minimum) / 3.0
 
     def plausible(value: float) -> bool:
-        return MIN_AGE <= value <= MAX_AGE
+        return minimum <= value <= maximum
 
-    # A range too wide to be an estimate is usually scale scaffolding ("on a
-    # scale of 1 to 100, I would say 35"), so skip past it and read what
-    # follows. If nothing follows, the range was the whole answer and says
-    # nothing usable.
     scan_from = 0
     match = _RANGE.search(text)
     if match:
         low, high = float(match.group(1)), float(match.group(2))
         if plausible(low) and plausible(high) and low <= high:
-            if high - low <= _MAX_PLAUSIBLE_RANGE:
+            if high - low <= max_range:
                 return (low + high) / 2.0
             scan_from = match.end()
 
@@ -220,3 +230,10 @@ def parse_age(text: str) -> float:
         if plausible(value):
             return value
     return math.nan
+
+
+def parse_age(text: str) -> float:
+    """Age in years from free text, or NaN."""
+    return parse_numeric_response(
+        text, MIN_AGE, MAX_AGE, max_range=_MAX_PLAUSIBLE_RANGE
+    )

@@ -51,3 +51,30 @@ def test_ignores_a_leading_non_age_number():
 def test_a_range_spanning_the_whole_plausible_band_is_rejected():
     # "somewhere between 1 and 100" is a refusal wearing a number.
     assert math.isnan(parse_age("somewhere between 1 and 100"))
+
+
+# --- the same parsing problem on a bounded 1-100 scale ---
+
+from facecav.models.scoring import parse_numeric_response
+
+
+def test_parses_a_score_on_a_hundred_point_scale():
+    assert parse_numeric_response("72", 1, 100) == 72.0
+
+
+def test_skips_scale_scaffolding_on_a_hundred_point_scale():
+    # "1 to 100" is the question restated, not the answer.
+    assert parse_numeric_response("On a scale of 1 to 100, I'd say 72", 1, 100) == 72.0
+
+
+def test_range_midpoint_on_a_hundred_point_scale():
+    assert parse_numeric_response("70-80", 1, 100, max_range=30) == 75.0
+
+
+def test_rejects_out_of_scale_values():
+    assert math.isnan(parse_numeric_response("150", 1, 100))
+
+
+def test_parse_age_still_delegates_correctly():
+    assert parse_age("34") == 34.0
+    assert math.isnan(parse_age("150"))
