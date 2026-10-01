@@ -66,7 +66,10 @@ TASKS = {
     "skin_tone": Task(
         "On a scale of 1 to 100, how light is this person's skin, where 1 is "
         "the darkest and 100 the lightest?",
-        BARE_NUMBER, 1, 100,
+        # The model sometimes reasons on this one. At max_tokens=8 that cost
+        # 2.8% of responses as empty strings; raised so the budget never
+        # silently truncates an answer.
+        BARE_NUMBER, 1, 100, max_tokens=256,
     ),
     # Ratio form: scale-free, so no calibration reference is needed.
     "lip_thickness_pct": Task(
