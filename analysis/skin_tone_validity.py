@@ -121,6 +121,46 @@ def main() -> None:
         print("  difference is attributable to the model.")
 
     # ------------------------------------------------------------------
+    # A compressing rater over-estimates low values and under-estimates high
+    # ones, so groups sitting at different points on the scale show different
+    # residuals with no differential treatment at all. The brow-position
+    # measurand failed exactly this way: its group means correlated with its
+    # group biases at r = -0.958. The test is whether groups at MATCHED truth
+    # still differ.
+    print("\n" + "=" * 76)
+    print("2b. IS THE GROUP DIFFERENCE JUST REGRESSION TO THE MEAN?")
+    print("=" * 76)
+    group_truth = data.groupby("race_code")[TRUTH].mean()
+    group_resid = data.groupby("race_code").residual.mean()
+    positional = stats.pearsonr(group_truth, group_resid)
+    print(f"  correlation of group mean truth with group residual: "
+          f"r = {positional.statistic:+.3f} (p = {positional.pvalue:.3f})")
+    print(f"  compression: slope of model on truth "
+          f"{stats.linregress(data[TRUTH], data.score).slope:.3f}")
+
+    # Restrict to a band every well-represented group occupies.
+    low, high = data[TRUTH].quantile([0.45, 0.95])
+    band = data[data[TRUTH].between(low, high)]
+    counts = band.race_code.value_counts()
+    keep = counts[counts >= 25].index
+    band = band[band.race_code.isin(keep)]
+    if len(keep) >= 2:
+        print(f"\n  MATCHED-TRUTH BAND ({low:.0f}-{high:.0f}), position held fixed:")
+        print(f"  {'group':<13} {'n':>4} {'mean truth':>11} {'residual':>10} "
+              f"{'95% CI':>18}")
+        print("  " + "-" * 58)
+        for race, block in band.groupby("race_code"):
+            lo, hi = bootstrap_ci(block.residual)
+            print(f"  {RACE_NAMES.get(race, race):<13} {len(block):>4} "
+                  f"{block[TRUTH].mean():>11.1f} {block.residual.mean():>+10.2f} "
+                  f"{f'[{lo:+.1f}, {hi:+.1f}]':>18}")
+        spread = (band.groupby("race_code").residual.mean().max()
+                  - band.groupby("race_code").residual.mean().min())
+        print(f"\n  residual spread within the band: {spread:.2f}")
+        print("  Groups at the same measured value still differing is")
+        print("  differential treatment; it cannot be positional.")
+
+    # ------------------------------------------------------------------
     print("\n" + "=" * 76)
     print("3. ACCURACY BY GROUP -- is the model worse for some groups?")
     print("=" * 76)

@@ -129,8 +129,20 @@ def main() -> None:
         print(f"{RACE_NAMES.get(race, race):<13} {len(block):>4} "
               f"{block.error.abs().mean():>8.2f} {block.error.mean():>+8.2f} "
               f"{f'[{low:+.2f}, {high:+.2f}]':>20}")
-    print("\n  Ground truth here is derived from CFD measurements available for")
-    print("  every face, so a group difference is attributable to the model.")
+    group_truth = data.groupby("race_code").truth.mean()
+    group_bias = data.groupby("race_code").error.mean()
+    positional = stats.pearsonr(group_truth, group_bias)
+    print(f"\n  correlation of group mean truth with group bias: "
+          f"r = {positional.statistic:+.3f}")
+    if abs(positional.statistic) > 0.8:
+        print("  -> the group differences are POSITIONAL, not differential")
+        print("     treatment. A compressing rater over-estimates groups that")
+        print("     sit low on the scale and under-estimates those that sit")
+        print("     high, with no group-specific behaviour involved. Do not")
+        print("     report this as bias.")
+    else:
+        print("  -> weak, so the group differences are not explained by where")
+        print("     the groups sit on a scale the model compresses.")
 
 
 if __name__ == "__main__":
