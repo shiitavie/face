@@ -96,6 +96,19 @@ TASKS = {
     # Direct measurement, anchored on an anthropometric constant. This is the
     # form a surgeon actually uses, and tests whether the model can measure
     # rather than merely rank.
+    "brow_position_pct": Task(
+        "What percentage of this face's total height (hairline to chin) is the "
+        "vertical distance from the centre of the pupil up to the middle of "
+        "the eyebrow directly above it? Answer as a percentage.",
+        BARE_NUMBER, 1, 40, max_tokens=256,
+    ),
+    "brow_position_mm": Task(
+        "Assume this person's interpupillary distance (centre of one pupil to "
+        "the centre of the other) is 63 mm. Using that as your scale "
+        "reference, what is the vertical distance from the centre of the pupil "
+        "up to the middle of the eyebrow directly above it, in millimetres?",
+        BARE_NUMBER, 3, 50, max_tokens=512,
+    ),
     "nose_width_mm": Task(
         "Assume this person's interpupillary distance (centre of one pupil to "
         "the centre of the other) is 63 mm. Using that as your scale "
@@ -109,12 +122,16 @@ TASKS = {
 #: scale-invariant so ranking works regardless of units, but calibration
 #: (is the VALUE right?) needs the truth in the units the question asked for.
 GROUND_TRUTH = {
-    "skin_tone": ("LuminanceMedian", None),
-    "lip_thickness_pct": ("LipThickness", "FaceLength"),
-    "nose_width_pct": ("NoseWidth", "FaceWidthBZ"),
-    "cheekbone_prominence_pct": ("CheekboneProminence", None),
-    "eyebrow_thickness_pct": ("EyeBrowThicknessAvg", "FaceLength"),
-    "nose_width_mm": ("NoseWidth", "EyeDistance"),
+    "skin_tone": ["LuminanceMedian"],
+    "lip_thickness_pct": ["LipThickness", "FaceLength"],
+    "nose_width_pct": ["NoseWidth", "FaceWidthBZ"],
+    "cheekbone_prominence_pct": ["CheekboneProminence"],
+    "eyebrow_thickness_pct": ["EyeBrowThicknessAvg", "FaceLength"],
+    "nose_width_mm": ["NoseWidth", "EyeDistance"],
+    # midpupil_brow is derived by add_derived_measures from PupilTop and
+    # MidbrowHairline, so the filter names those raw columns.
+    "brow_position_pct": ["PupilTopR", "MidbrowHairlineR", "FaceLength"],
+    "brow_position_mm": ["PupilTopR", "MidbrowHairlineR", "EyeDistance"],
 }
 
 PRICES = {"claude-opus-5": (5.0, 25.0), "claude-sonnet-5": (2.0, 10.0),
@@ -144,7 +161,7 @@ def main() -> None:
     # Rate only faces whose ground truth exists. eyebrow_thickness_pct and
     # nose_width_mm depend on columns CFD records for 229 faces, so without
     # this the run would pay for 600 unusable ratings.
-    required = [c for c in GROUND_TRUTH.get(args.task, ((), ()))[:2] if c]
+    required = GROUND_TRUTH.get(args.task, [])
     missing = [c for c in required if c not in faces.columns]
     if missing:
         raise SystemExit(f"manifest lacks ground-truth column(s): {missing}")

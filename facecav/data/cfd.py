@@ -189,3 +189,32 @@ def build_manifest(root: Path, expression: str = "N") -> pd.DataFrame:
         manifest[column] = pd.to_numeric(manifest[column], errors="coerce")
 
     return manifest
+
+
+#: Measures the literature uses that CFD does not ship directly, but that its
+#: raw columns determine.
+def add_derived_measures(manifest: pd.DataFrame) -> pd.DataFrame:
+    """Add measures derived from CFD's raw columns.
+
+    ``midpupil_brow`` is the midpupil-to-brow distance, the standard
+    photographic outcome in the brow-lift literature. CFD records
+    ``PupilTop`` (pupil centre to hairline) and ``MidbrowHairline`` (midbrow to
+    hairline), both on the vertical through the pupil, so their difference is
+    exactly that distance.
+
+    The brow-lift literature also reports brow position against the
+    supraorbital rim, but that is a bony landmark identified by palpation and
+    is not reliably visible in a frontal photograph, which is why photographic
+    outcome studies use the pupil reference instead.
+    """
+    out = manifest.copy()
+    for side in ("R", "L"):
+        out[f"midpupil_brow_{side}"] = (
+            pd.to_numeric(out[f"PupilTop{side}"], errors="coerce")
+            - pd.to_numeric(out[f"MidbrowHairline{side}"], errors="coerce")
+        )
+    out["midpupil_brow"] = out[["midpupil_brow_R", "midpupil_brow_L"]].mean(axis=1)
+    out["midpupil_brow_asymmetry"] = (
+        out.midpupil_brow_R - out.midpupil_brow_L
+    ).abs()
+    return out
