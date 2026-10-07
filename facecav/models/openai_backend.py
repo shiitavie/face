@@ -30,13 +30,21 @@ from .scoring import classify_response
 #: providers; see claude_backend.DEFAULT_MAX_DIMENSION.
 DEFAULT_MAX_DIMENSION = 1000
 
-#: Preference order, most capable first. Resolved against the models the key
-#: can actually see, so a model retired or renamed after this was written does
-#: not break the run.
+#: Preference order, resolved against the models the key can actually see so a
+#: retirement or rename does not break the run.
+#:
+#: gpt-5.1 leads deliberately rather than the newest flagship. Measured on CFD
+#: images: 5.1 answers a single-number question in ~10 output tokens, while 5.5
+#: reasons first and spends ~51 for the same answer, at roughly 4x the input
+#: price, with no evident benefit on a task this simple.
 PREFERRED_MODELS = (
-    "gpt-5.1", "gpt-5", "gpt-5-mini",
-    "gpt-4.1", "gpt-4o",
+    "gpt-5.1", "gpt-5.2", "gpt-5", "gpt-4.1", "gpt-4o",
 )
+
+#: Only this generation exposes log-probabilities. The gpt-5 family rejects the
+#: parameter outright, so the exact-distribution readout -- and therefore any
+#: check of whether the sampled estimate is faithful -- is available only here.
+LOGPROB_MODELS = ("gpt-4.1", "gpt-4o")
 
 
 @dataclass
