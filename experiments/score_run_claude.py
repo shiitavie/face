@@ -39,12 +39,13 @@ class Task:
     system: str
     minimum: float
     maximum: float
-    #: Claude reasons before answering harder questions, and that reasoning
-    #: consumes the token budget. A task needing derivation returns an EMPTY
-    #: string at a small budget -- stop_reason is "max_tokens", but nothing
-    #: errors and the response is simply recorded as unparseable. Measured:
-    #: the mm-measurement task uses ~166 output tokens.
-    max_tokens: int = 8
+    #: Models reason before answering harder questions and that reasoning
+    #: consumes the budget. The two providers fail differently when it runs
+    #: out: Claude returns an EMPTY string with stop_reason "max_tokens",
+    #: silently recorded as unparseable, while OpenAI raises a hard 400. The
+    #: default is therefore generous enough that neither happens; measured
+    #: usage is 1-5 tokens for a bare rating and ~166 for mm measurement.
+    max_tokens: int = 128
 
 
 TASKS = {
@@ -58,7 +59,7 @@ TASKS = {
     ),
     "age": Task(
         "How old is this person? Give your best estimate of their age in years.",
-        BARE_NUMBER, 1, 120,
+        BARE_NUMBER, 1, 120, max_tokens=256,
     ),
 
     # --- objective measurands, each with a CFD ground truth ---
