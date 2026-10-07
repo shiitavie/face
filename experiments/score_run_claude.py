@@ -136,12 +136,17 @@ GROUND_TRUTH = {
 
 PRICES = {"claude-opus-5": (5.0, 25.0), "claude-sonnet-5": (2.0, 10.0),
           "claude-haiku-4-5": (1.0, 5.0)}
+#: OpenAI pricing is not hardcoded -- it changes and varies by tier, so the
+#: estimate for those models is reported as unknown rather than wrong.
+DEFAULT_PRICE = (5.0, 25.0)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", required=True, choices=list(TASKS))
-    parser.add_argument("--model", default="claude-opus-5")
+    parser.add_argument("--model", default="claude-opus-5",
+                        help="Any Anthropic model id, or 'openai' / an OpenAI "
+                             "model id to use the OpenAI backend.")
     parser.add_argument("--cfd-root", type=Path, required=True)
     parser.add_argument("--n-samples", type=int, default=3)
     parser.add_argument("--limit", type=int, default=None)
@@ -187,7 +192,7 @@ def main() -> None:
     tokens = 936
     estimate = (len(todo) * tokens * 1.25
                 + len(todo) * (args.n_samples - 1) * tokens * 0.1) \
-        * PRICES.get(args.model, (5.0, 25.0))[0] / 1e6
+        * PRICES.get(args.model, DEFAULT_PRICE)[0] / 1e6
     print(f"task      {args.task}  (scale {task.minimum:g}-{task.maximum:g})")
     print(f"model     {args.model}")
     print(f"faces     {len(faces)} total, {len(done)} done, {len(todo)} to run")
@@ -199,7 +204,13 @@ def main() -> None:
         print("nothing to do")
         return
 
-    rater = ClaudeRater(args.model)
+    if args.model == "openai" or args.model.startswith(("gpt-", "o3", "o4")):
+        from facecav.models.openai_backend import OpenAIRater
+
+        rater = OpenAIRater(None if args.model == "openai" else args.model)
+        print(f"  using OpenAI backend, model {rater.model}\n")
+    else:
+        rater = ClaudeRater(args.model)
     with out.open("a") as handle:
         for n, row in enumerate(todo, start=1):
             responses = rater.sample_ratings(
@@ -227,7 +238,7 @@ def main() -> None:
             }) + "\n")
             handle.flush()
             if n % 50 == 0 or n == len(todo):
-                spent = rater.usage.cost(*PRICES.get(args.model, (5.0, 25.0)))
+                spent = rater.usage.cost(*PRICES.get(args.model, DEFAULT_PRICE))
                 print(f"  {n}/{len(todo)}   ${spent:.2f} spent")
 
     print(f"\nwrote {out}")
