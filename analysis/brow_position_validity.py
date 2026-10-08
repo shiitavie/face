@@ -131,6 +131,16 @@ def main() -> None:
               f"{f'[{low:+.2f}, {high:+.2f}]':>20}")
     group_truth = data.groupby("race_code").truth.mean()
     group_bias = data.groupby("race_code").error.mean()
+    if len(group_truth) < 3:
+        # A correlation across two points is always exactly +/-1 and says
+        # nothing. The mm form reaches only the two subsets carrying
+        # EyeDistance, so this test needs the percentage form.
+        print(f"\n  only {len(group_truth)} groups here -- the positional test "
+              f"needs at least 3")
+        print("  (a correlation over two points is always +/-1). See the "
+              "percentage")
+        print("  form, which covers all six groups.")
+        return
     positional = stats.pearsonr(group_truth, group_bias)
     print(f"\n  correlation of group mean truth with group bias: "
           f"r = {positional.statistic:+.3f}")
