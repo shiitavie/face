@@ -59,9 +59,35 @@ class ClaudeUsage:
         ) / 1_000_000
 
 
-def encode_image(path: str, max_dimension: int = DEFAULT_MAX_DIMENSION) -> tuple[str, str]:
-    """Return (base64 data, media type), resized to a comparable token budget."""
+#: Periorbital window as fractions of the frame (left, top, right, bottom).
+#: CFD's framing is fixed at 2444x1718 with the face centred, so a proportional
+#: window reliably holds both brows and both pupils across subjects -- verified
+#: on one face per race group.
+#:
+#: The point is resolution. A midpupil-brow distance of ~100 native pixels
+#: arrives as 41 px when the whole face is downsampled to 1000 px, which is at
+#: or below one encoder patch; inside this window it arrives as ~102 px. The
+#: interpupillary anchor still works because both pupils remain visible.
+PERIORBITAL_BOX = (0.30, 0.20, 0.70, 0.54)
+
+
+def encode_image(
+    path: str,
+    max_dimension: int = DEFAULT_MAX_DIMENSION,
+    crop_box: tuple[float, float, float, float] | None = None,
+) -> tuple[str, str]:
+    """Return (base64 data, media type), resized to a comparable token budget.
+
+    ``crop_box`` takes fractions of the frame and is applied before resizing,
+    which is what multiplies the effective resolution of a small feature.
+    """
     image = Image.open(path).convert("RGB")
+    if crop_box is not None:
+        width, height = image.size
+        image = image.crop((
+            int(crop_box[0] * width), int(crop_box[1] * height),
+            int(crop_box[2] * width), int(crop_box[3] * height),
+        ))
     scale = min(max_dimension / image.width, max_dimension / image.height, 1.0)
     if scale < 1.0:
         image = image.resize(
@@ -102,12 +128,18 @@ class ClaudeRater:
     failure so a long run survives its expiry.
     """
 
-    def __init__(self, model: str = "claude-opus-5", max_dimension: int = DEFAULT_MAX_DIMENSION):
+    def __init__(
+        self,
+        model: str = "claude-opus-5",
+        max_dimension: int = DEFAULT_MAX_DIMENSION,
+        crop_box: tuple[float, float, float, float] | None = None,
+    ):
         import anthropic
 
         self._anthropic = anthropic
         self.model = model
         self.max_dimension = max_dimension
+        self.crop_box = crop_box
         self.usage = ClaudeUsage()
         self._using_oauth = False
         self.client = self._build_client()
@@ -174,7 +206,9 @@ class ClaudeRater:
         max_tokens: int = 8,
     ) -> list[dict]:
         """Sample ``n_samples`` responses, classified as answer/hedged/refusal."""
-        image_b64, media_type = encode_image(image_path, self.max_dimension)
+        image_b64, media_type = encode_image(
+            image_path, self.max_dimension, self.crop_box
+        )
 
         def one(_):
             attempts = 8
@@ -252,8 +286,8 @@ class ClaudeRater:
         model a single sample per order suffices; the value is what the two
         orders agree on, not the confidence of either.
         """
-        encoded_a = encode_image(path_a, self.max_dimension)
-        encoded_b = encode_image(path_b, self.max_dimension)
+        encoded_a = encode_image(path_a, self.max_dimension, self.crop_box)
+        encoded_b = encode_image(path_b, self.max_dimension, self.crop_box)
 
         def choose(images) -> str | None:
             for attempt in range(6):

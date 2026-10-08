@@ -153,6 +153,9 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--crop", choices=["periorbital"], default=None,
+                        help="Send a cropped region at native resolution "
+                             "instead of the whole face downsampled.")
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
@@ -177,8 +180,9 @@ def main() -> None:
     if args.limit:
         faces = faces.head(args.limit)
 
+    suffix = f"_{args.crop}" if args.crop else ""
     out = args.out or Path(
-        f"artifacts/{args.task}_{args.model.replace('/', '__')}.jsonl"
+        f"artifacts/{args.task}{suffix}_{args.model.replace('/', '__')}.jsonl"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
@@ -211,7 +215,10 @@ def main() -> None:
         rater = OpenAIRater(None if args.model == "openai" else args.model)
         print(f"  using OpenAI backend, model {rater.model}\n")
     else:
-        rater = ClaudeRater(args.model)
+        from facecav.models.claude_backend import PERIORBITAL_BOX
+
+        box = PERIORBITAL_BOX if args.crop == "periorbital" else None
+        rater = ClaudeRater(args.model, crop_box=box)
     with out.open("a") as handle:
         for n, row in enumerate(todo, start=1):
             responses = rater.sample_ratings(
